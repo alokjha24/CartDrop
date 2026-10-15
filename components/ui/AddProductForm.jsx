@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "./input";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { AuthModal } from "./AuthModal";
 import { addProduct } from "@/app/actions/auth";
 import { toast } from "sonner";
 
 const AddProductForm = ({ user }) => {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -34,6 +36,7 @@ const AddProductForm = ({ user }) => {
       } else {
         toast.success(result.message || "Product tracked successfully!");
         setUrl("");
+        router.refresh();
       }
     } catch (error) {
       console.error(error);
@@ -45,14 +48,14 @@ const AddProductForm = ({ user }) => {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
-        <div className="flex flex-col sm:flex-row gap-2">
+      <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl">
+        <div className="glass-card flex flex-col gap-2 rounded-2xl p-2 sm:flex-row">
           <Input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste the product URL (Amazon, Zara, Walmart...)"
-            className="h-12 text-base"
+            placeholder="Paste a product URL from Amazon, Flipkart, Myntra or any store"
+            className="h-12 border-0 bg-transparent text-base text-[#F8FAFC] shadow-none placeholder:text-slate-500 focus-visible:ring-0"
             required
             disabled={loading}
           />
@@ -61,7 +64,7 @@ const AddProductForm = ({ user }) => {
             type="submit"
             disabled={loading}
             size="lg"
-            className="bg-orange-500 hover:bg-green-600 h-12 px-8"
+            className="h-12 bg-[#F97316] px-7 text-white hover:bg-[#EA580C]"
           >
             {loading ? (
               <>
@@ -69,7 +72,10 @@ const AddProductForm = ({ user }) => {
                 Adding...
               </>
             ) : (
-              "Track Price"
+              <>
+                <Search className="mr-2 h-4 w-4" />
+                Track price
+              </>
             )}
           </Button>
         </div>

@@ -14,10 +14,9 @@ const AuthButton = ({ user }) => {
     return (
       <form action={signOut}>
         <Button
-          variant="ghost"
           size="sm"
           type="submit"
-          className="gap-2"
+          className="gap-2 bg-[#F97316] text-white hover:bg-[#EA580C]"
         >
           <LogOut className="w-4 h-4" />
           Sign Out
@@ -30,7 +29,7 @@ const AuthButton = ({ user }) => {
     <>
       <Button
         onClick={() => setShowAuthModal(true)}
-        className="bg-orange-500 hover:bg-orange-600 gap-2"
+        className="gap-2 bg-[#F97316] text-white hover:bg-[#EA580C]"
       >
         <LogIn className="w-4 h-4" />
         Sign In

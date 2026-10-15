@@ -2,21 +2,28 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { scrapeProduct } from "@/lib/firecrawl";
+import {
+  getLatestPriceRecord,
+  normalizeCurrencyCode,
+  normalizePrice,
+  shouldRecordPriceSample,
+} from "@/lib/price-history.mjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import {
+  getProductDisplayTitle,
+  getRetailerLabel,
+  normalizeProductUrl,
+} from "@/lib/product-url.mjs";
 
 /**
  * Add a new product or update an existing product
  */
 export async function addProduct(formData) {
-  const url = formData?.get("url")?.toString().trim();
-
-  // Validate URL
-  if (!url) {
-    return {
-      error: "Product URL is required.",
-    };
-  }
+  const submittedUrl = formData?.get("url")?.toString();
+  const normalizedUrl = normalizeProductUrl(submittedUrl);
+  if (normalizedUrl.error) return { error: normalizedUrl.error };
+  const url = normalizedUrl.url;
 
   try {
     const supabase = await createClient();
@@ -43,12 +50,13 @@ export async function addProduct(formData) {
       };
     }
 
+    // Reject a response if a newer overlapping fetch has already been saved.
+    const scrapeStartedAt = Date.now();
+
     // --------------------------------------------------
     // 2. Scrape product using Firecrawl
     // --------------------------------------------------
     const productData = await scrapeProduct(url);
-
-    console.log("Scraped Product:", productData);
 
     if (!productData) {
       return {
@@ -62,7 +70,7 @@ export async function addProduct(formData) {
       };
     }
 
-    if (!productData.currentPrice) {
+    if (productData.currentPrice === null || productData.currentPrice === undefined) {
       return {
         error: "Product price could not be extracted.",
       };
@@ -71,16 +79,15 @@ export async function addProduct(formData) {
     // --------------------------------------------------
     // 3. Convert price
     // --------------------------------------------------
-    const newPrice = Number(productData.currentPrice);
+    const newPrice = normalizePrice(productData.currentPrice);
 
-    if (!Number.isFinite(newPrice) || newPrice < 0) {
+    if (newPrice === null) {
       return {
-        error: "Invalid product price received.",
+        error: "Invalid product price received. The price must be greater than zero.",
       };
     }
 
-    const currency =
-      productData.currencyCode?.trim().toUpperCase() || "USD";
+    const currency = normalizeCurrencyCode(productData.currencyCode);
 
     // --------------------------------------------------
     // 4. Image URL
@@ -113,49 +120,19 @@ export async function addProduct(formData) {
       };
     }
 
-    let product;
-    let isUpdate = false;
+    let product = existingProduct;
+    let isUpdate = Boolean(existingProduct);
 
-    // --------------------------------------------------
-    // 6. Update existing product
-    // --------------------------------------------------
-    if (existingProduct) {
-      isUpdate = true;
-
-      const { data, error } = await supabase
-        .from("products")
-        .update({
-          name: productData.productName.trim(),
-          current_price: newPrice,
-          currency: currency,
-          image_url: imageUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingProduct.id)
-        .eq("user_id", user.id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Product update error:", error);
-        throw error;
-      }
-
-      product = data;
-    }
-
-    // --------------------------------------------------
-    // 7. Insert new product
-    // --------------------------------------------------
-    else {
+    // A new product row is needed before inserting its first history record.
+    if (!product) {
       const { data, error } = await supabase
         .from("products")
         .insert({
           user_id: user.id,
-          url: url,
-          name: productData.productName.trim(),
+          url,
+          name: getProductDisplayTitle(productData.productName, url),
           current_price: newPrice,
-          currency: currency,
+          currency,
           image_url: imageUrl,
           updated_at: new Date().toISOString(),
         })
@@ -168,92 +145,97 @@ export async function addProduct(formData) {
       }
 
       product = data;
-    }
-
-    // --------------------------------------------------
-    // 8. Add daily price history snapshot
-    // --------------------------------------------------
-
-    const priceChanged =
-      !existingProduct ||
-      Number(existingProduct.current_price) !== newPrice;
-
-    const nowIso = new Date().toISOString();
-    const todayUtcKey = nowIso.slice(0, 10);
-
-    const {
-      data: latestHistory,
-      error: latestHistoryError,
-    } = await supabase
-      .from("price_history")
-      .select("id, checked_at")
-      .eq("product_id", product.id)
-      .order("checked_at", {
-        ascending: false,
-      })
-      .limit(1)
-      .maybeSingle();
-
-    if (latestHistoryError) {
-      console.error(
-        "Latest price history lookup error:",
-        latestHistoryError
-      );
-
-      throw new Error(
-        `Price history lookup error: ${latestHistoryError.message}`
-      );
-    }
-
-    const latestUtcKey = latestHistory?.checked_at
-      ? new Date(latestHistory.checked_at)
-        .toISOString()
-        .slice(0, 10)
-      : null;
-
-    if (latestHistory?.id && latestUtcKey === todayUtcKey) {
-      const {
-        error: historyUpdateError,
-      } = await supabase
-        .from("price_history")
-        .update({
-          price: newPrice,
-          currency: currency,
-          checked_at: nowIso,
-        })
-        .eq("id", latestHistory.id);
-
-      if (historyUpdateError) {
-        console.error(
-          "Price history daily update error:",
-          historyUpdateError
-        );
-
-        throw new Error(
-          `Price history update error: ${historyUpdateError.message}`
-        );
-      }
+      isUpdate = false;
     } else {
-      const {
-        error: historyInsertError,
-      } = await supabase.from("price_history").insert({
-        product_id: product.id,
-        price: newPrice,
-        currency: currency,
-        checked_at: nowIso,
-      });
+      const historyNow = new Date().toISOString();
+      const { data: latestHistoryRow, error: latestHistoryError } = await supabase
+        .from("price_history")
+        .select("id, price, checked_at")
+        .eq("product_id", product.id)
+        .gt("price", 0)
+        .lte("checked_at", historyNow)
+        .order("checked_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestHistoryError) {
+        console.error("Price history lookup error:", latestHistoryError);
+        throw new Error(`Price history lookup error: ${latestHistoryError.message}`);
+      }
+
+      const latestHistory = getLatestPriceRecord(
+        latestHistoryRow ? [latestHistoryRow] : []
+      );
+
+      if (latestHistory && latestHistory.timestamp > scrapeStartedAt) {
+        revalidatePath("/");
+        return {
+          success: true,
+          message: "A newer price check already finished. The latest price was kept.",
+        };
+      }
+
+      const now = Date.now();
+      const nowIso = new Date(now).toISOString();
+
+      if (shouldRecordPriceSample(latestHistory, newPrice, now)) {
+        const { error: historyInsertError } = await supabase
+          .from("price_history")
+          .insert({
+            product_id: product.id,
+            price: newPrice,
+            currency,
+            checked_at: nowIso,
+          });
+
+        if (historyInsertError) {
+          console.error("Price history insert error:", historyInsertError);
+          throw new Error(`Price history error: ${historyInsertError.message}`);
+        }
+      }
+
+      const { data, error } = await supabase
+        .from("products")
+        .update({
+          name: getProductDisplayTitle(productData.productName, url),
+          current_price: newPrice,
+          currency,
+          image_url: imageUrl,
+          updated_at: nowIso,
+        })
+        .eq("id", product.id)
+        .eq("user_id", user.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Product update error:", error);
+        throw error;
+      }
+
+      product = data;
+    }
+
+    if (!isUpdate) {
+      const now = Date.now();
+      const { error: historyInsertError } = await supabase
+        .from("price_history")
+        .insert({
+          product_id: product.id,
+          price: newPrice,
+          currency,
+          checked_at: new Date(now).toISOString(),
+        });
 
       if (historyInsertError) {
-        console.error(
-          "Price history insert error:",
-          historyInsertError
-        );
-
-        throw new Error(
-          `Price history error: ${historyInsertError.message}`
-        );
+        console.error("Price history insert error:", historyInsertError);
+        throw new Error(`Price history error: ${historyInsertError.message}`);
       }
     }
+
+    const priceChanged =
+      !existingProduct || normalizePrice(existingProduct.current_price) !== newPrice;
 
     // --------------------------------------------------
     // 9. Refresh homepage
@@ -268,6 +250,7 @@ export async function addProduct(formData) {
           ? "Product updated with the latest price!"
           : "Product is already up to date."
         : "Product added successfully!",
+      retailer: getRetailerLabel(normalizedUrl.hostname),
     };
   } catch (error) {
     console.error("Add Product Error:", error);
@@ -359,7 +342,17 @@ export async function getProducts() {
       return [];
     }
 
-    return data ?? [];
+    if (!data?.length) {
+      return [];
+    }
+
+    return data.map((product) => ({
+      ...product,
+      current_price: normalizePrice(product.current_price),
+      currency: normalizeCurrencyCode(product.currency),
+      name: getProductDisplayTitle(product.name, product.url),
+      retailer: getRetailerLabel(product.url),
+    }));
   } catch (error) {
     console.error("Get Products Error:", error);
 
@@ -387,25 +380,52 @@ export async function getPriceHistory(productId) {
       return [];
     }
 
-    // Get price history only for user's own product
-    const { data, error } = await supabase
-      .from("price_history")
-      .select("*")
-      .eq("product_id", productId)
-      .order("checked_at", {
-        ascending: true,
-      });
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("id")
+      .eq("id", productId)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (error) {
-      console.error("Get price history error:", error);
+    if (productError) {
+      throw new Error(`Product access check failed: ${productError.message}`);
+    }
+
+    if (!product) {
       return [];
     }
 
-    return data ?? [];
+    // Product ownership is checked above before reading its history.
+    const pageSize = 1000;
+    let offset = 0;
+    const history = [];
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("price_history")
+        .select("*")
+        .eq("product_id", productId)
+        .order("checked_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        console.error("Get price history error:", error);
+        throw new Error(`Unable to load price history: ${error.message}`);
+      }
+
+      history.push(...(data ?? []));
+      if ((data?.length ?? 0) < pageSize) {
+        break;
+      }
+
+      offset += pageSize;
+    }
+
+    return history;
   } catch (error) {
     console.error("Get Price History Error:", error);
-
-    return [];
+    throw error;
   }
 }
 

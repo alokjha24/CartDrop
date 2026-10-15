@@ -2,8 +2,8 @@ import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata = {
-  title: "PriceDrop",
-  description: "Track product price drops",
+  title: "CartDrop | Smart Price Tracking",
+  description: "Track product prices and discover the right time to buy.",
 };
 
 export default function RootLayout({ children }) {

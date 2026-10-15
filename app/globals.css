@@ -49,38 +49,38 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #0b1220;
+  --foreground: #f8fafc;
+  --card: #172337;
+  --card-foreground: #f8fafc;
+  --popover: #111c2e;
+  --popover-foreground: #f8fafc;
+  --primary: #f97316;
+  --primary-foreground: #ffffff;
+  --secondary: #1e2b40;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e2b40;
+  --muted-foreground: #b8c4d9;
+  --accent: #ffe082;
+  --accent-foreground: #172337;
+  --destructive: #f87171;
+  --border: #334155;
+  --input: #334155;
+  --ring: #f97316;
+  --chart-1: #f97316;
+  --chart-2: #34d399;
+  --chart-3: #ff6b91;
+  --chart-4: #ffe082;
+  --chart-5: #fdba74;
+  --radius: 0.75rem;
+  --sidebar: #111c2e;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #f97316;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1e2b40;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #334155;
+  --sidebar-ring: #f97316;
 }
 
 .dark {
@@ -90,8 +90,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: #f97316;
+  --primary-foreground: #ffffff;
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -101,20 +101,20 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
+  --ring: #f97316;
+  --chart-1: #f97316;
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: #f97316;
+  --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-ring: #f97316;
 }
 
 @layer base {
@@ -122,9 +122,51 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
   html {
     @apply font-sans;
+  }
+
+  .app-background {
+    position: relative;
+    isolation: isolate;
+    background-color: #0b1220;
+    background-image:
+      linear-gradient(180deg, transparent 0%, transparent 48%, rgb(120 54 22 / 0.16) 100%),
+      radial-gradient(circle at 8% 8%, rgb(249 115 22 / 0.2), transparent 30rem),
+      radial-gradient(circle at 92% 72%, rgb(249 115 22 / 0.12), transparent 34rem);
+    background-attachment: fixed;
+  }
+
+  .background-orb {
+    position: fixed;
+    border-radius: 9999px;
+    filter: blur(90px);
+    opacity: 0.28;
+    transform: translateZ(0);
+  }
+
+  .background-orb-orange {
+    top: 8rem;
+    left: -10rem;
+    width: 28rem;
+    height: 28rem;
+    background: #f97316;
+    opacity: 0.34;
+  }
+
+  .glass-card {
+    border: 1px solid rgb(255 255 255 / 0.1);
+    background: rgb(11 18 32 / 0.68);
+    box-shadow: 0 20px 45px rgb(0 0 0 / 0.25);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+  }
+
+  @layer utilities {
+    .text-balance {
+      text-wrap: balance;
+    }
   }
 }
