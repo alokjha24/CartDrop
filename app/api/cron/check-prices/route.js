@@ -9,6 +9,7 @@ import {
   shouldRecordPriceSample,
 } from "@/lib/price-history.mjs";
 import { evaluatePriceAlerts } from "@/lib/price-alerts.mjs";
+import { sendPriceAlertEmail } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -59,7 +60,7 @@ async function runPriceCheck(request) {
 
   const { data: products, error: productsError } = await supabase
     .from("products")
-    .select("id, user_id, url, current_price, currency, updated_at");
+    .select("id, user_id, name, url, current_price, currency, updated_at");
 
   if (productsError) {
     console.error("Scheduled price lookup error:", productsError);
@@ -238,7 +239,7 @@ async function runPriceCheck(request) {
               triggering_price: event.triggeringPrice,
               previous_price: event.previousPrice,
               triggered_at: event.triggeredAt,
-              notification_status: "recorded",
+              notification_status: "pending",
               event_key: eventKey,
             });
 
@@ -249,6 +250,35 @@ async function runPriceCheck(request) {
             result.alertFailures += 1;
             console.error(`Price alert event failed for ${product.id}:`, eventInsertError);
             continue;
+          }
+
+          let notificationStatus = "recorded";
+          try {
+            await sendPriceAlertEmail({
+              productName: product.name,
+              productUrl: product.url,
+              currency,
+              price: event.triggeringPrice,
+              previousPrice: event.previousPrice,
+              alertType: event.alertType,
+            });
+          } catch (notificationError) {
+            notificationStatus = "failed";
+            result.alertFailures += 1;
+            console.error(`Price alert email failed for ${product.id}:`, notificationError);
+          }
+
+          const { error: notificationUpdateError } = await supabase
+            .from("price_alert_events")
+            .update({ notification_status: notificationStatus })
+            .eq("event_key", eventKey);
+
+          if (notificationUpdateError) {
+            result.alertFailures += 1;
+            console.error(
+              `Price alert notification status update failed for ${product.id}:`,
+              notificationUpdateError
+            );
           }
 
           const { error: alertUpdateError } = await supabase
