@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import { sendPriceAlertEmail } from "@/lib/notifications";
 
 const ALERT_TYPES = new Set(["target_price", "percentage_drop", "lowest_price"]);
 const FREQUENCIES = new Set(["immediate", "daily", "weekly"]);
@@ -73,7 +74,7 @@ async function getAuthenticatedContext(productId) {
 
   const { data: product, error: productError } = await supabase
     .from("products")
-    .select("id, current_price, currency")
+    .select("id, name, url, image_url, current_price, currency")
     .eq("id", productId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -144,6 +145,19 @@ export async function upsertPriceAlert(productId, input) {
   const context = await getAuthenticatedContext(productId);
   if (context.error) return { error: context.error };
 
+  const { data: existingAlert, error: existingAlertError } = await context.supabase
+    .from("price_alerts")
+    .select("id, last_triggered_at, last_triggered_price")
+    .eq("product_id", productId)
+    .eq("user_id", context.user.id)
+    .eq("alert_type", validation.value.alert_type)
+    .maybeSingle();
+
+  if (existingAlertError) {
+    console.error("Existing price alert lookup error:", existingAlertError);
+    return { error: "Unable to verify this price alert." };
+  }
+
   const { data, error } = await context.supabase
     .from("price_alerts")
     .upsert(
@@ -161,6 +175,52 @@ export async function upsertPriceAlert(productId, input) {
   if (error) {
     console.error("Save price alert error:", error);
     return { error: "Unable to save this price alert." };
+  }
+
+  const currentPrice = positiveNumber(context.product.current_price);
+  const targetPrice = positiveNumber(validation.value.threshold);
+  const shouldNotifyImmediately =
+    validation.value.alert_type === "target_price" &&
+    currentPrice !== null &&
+    targetPrice !== null &&
+    currentPrice <= targetPrice &&
+    (!existingAlert?.last_triggered_at ||
+      positiveNumber(existingAlert.last_triggered_price) > targetPrice);
+
+  if (shouldNotifyImmediately) {
+    try {
+      await sendPriceAlertEmail({
+        productName: context.product.name,
+        productUrl: context.product.url,
+        productImageUrl: context.product.image_url,
+        currency: context.product.currency,
+        price: currentPrice,
+        targetPrice,
+        alertType: "target_price",
+      });
+
+      const triggeredAt = new Date().toISOString();
+      const { error: triggerUpdateError } = await context.supabase
+        .from("price_alerts")
+        .update({
+          last_triggered_at: triggeredAt,
+          last_triggered_price: currentPrice,
+          updated_at: triggeredAt,
+        })
+        .eq("id", data.id)
+        .eq("user_id", context.user.id);
+
+      if (triggerUpdateError) {
+        console.error("Immediate price alert state update error:", triggerUpdateError);
+      }
+    } catch (notificationError) {
+      console.error("Immediate price alert email failed:", notificationError);
+      return {
+        success: true,
+        alert: data,
+        warning: "Alert saved, but the email could not be sent. Check notification settings.",
+      };
+    }
   }
 
   revalidatePath("/");

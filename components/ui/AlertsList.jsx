@@ -50,6 +50,8 @@ export default function AlertsList({ initialAlerts, error }) {
 
     if (result?.error) {
       setEditError(result.error);
+    } else if (result?.warning) {
+      setEditError(result.warning);
     } else if (result.alert) {
       setAlerts((current) =>
         current.map((alert) =>

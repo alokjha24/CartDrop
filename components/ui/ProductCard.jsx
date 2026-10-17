@@ -200,6 +200,7 @@ const ProductCard = ({ product }) => {
             enabled: true,
           });
           if (result?.error) throw new Error(result.error);
+          if (result?.warning) setAlertError(result.warning);
         }
       }
 

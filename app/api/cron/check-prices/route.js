@@ -60,7 +60,7 @@ async function runPriceCheck(request) {
 
   const { data: products, error: productsError } = await supabase
     .from("products")
-    .select("id, user_id, name, url, current_price, currency, updated_at");
+    .select("id, user_id, name, url, image_url, current_price, currency, updated_at");
 
   if (productsError) {
     console.error("Scheduled price lookup error:", productsError);
@@ -257,10 +257,13 @@ async function runPriceCheck(request) {
             await sendPriceAlertEmail({
               productName: product.name,
               productUrl: product.url,
+              productImageUrl: product.image_url,
               currency,
               price: event.triggeringPrice,
               previousPrice: event.previousPrice,
               alertType: event.alertType,
+              targetPrice: alerts.find((alert) => alert.id === event.alertId)?.threshold,
+              observationWindowDays: alerts.find((alert) => alert.id === event.alertId)?.observation_window_days,
             });
           } catch (notificationError) {
             notificationStatus = "failed";
