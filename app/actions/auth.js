@@ -15,6 +15,17 @@ import {
   getRetailerLabel,
   normalizeProductUrl,
 } from "@/lib/product-url.mjs";
+import { storeProductImage } from "@/lib/product-image-storage.mjs";
+
+let lastCheckedAtSchemaWarningShown = false;
+
+function warnMissingLastCheckedAtColumn() {
+  if (lastCheckedAtSchemaWarningShown) return;
+  lastCheckedAtSchemaWarningShown = true;
+  console.warn(
+    "The products.last_checked_at column is missing. Apply supabase/migrations/20261019090000_add_last_checked_at.sql."
+  );
+}
 
 /**
  * Add a new product or update an existing product
@@ -56,7 +67,26 @@ export async function addProduct(formData) {
     // --------------------------------------------------
     // 2. Scrape product using Firecrawl
     // --------------------------------------------------
-    const productData = await scrapeProduct(url);
+    const fastRefresh = formData?.get("fastRefresh") === "true";
+    let productData;
+    if (fastRefresh) {
+      try {
+        productData = await scrapeProduct(url, { fast: true });
+      } catch (fastError) {
+        const needsFullExtraction =
+          /product name not found|current selling price not found|no data extracted/i.test(
+            fastError?.message || ""
+          );
+        if (!needsFullExtraction) throw fastError;
+        console.info("Fast product extraction fell back to full extraction.");
+        productData = await scrapeProduct(url);
+      }
+    } else {
+      productData = await scrapeProduct(url);
+    }
+    if (productData.diagnostics) {
+      console.info("Product scrape diagnostics:", productData.diagnostics);
+    }
 
     if (!productData) {
       return {
@@ -92,7 +122,14 @@ export async function addProduct(formData) {
     // --------------------------------------------------
     // 4. Image URL
     // --------------------------------------------------
-    const scrapedImageUrl = productData.productImageUrl?.trim() || null;
+    const scrapedImageUrl =
+      (Array.isArray(productData.productImageCandidates)
+        ? productData.productImageCandidates.find(
+            (candidate) => typeof candidate === "string" && candidate.trim()
+          )
+        : null) ||
+      productData.productImageUrl?.trim() ||
+      null;
 
     // --------------------------------------------------
     // 5. Check whether product already exists
@@ -123,19 +160,30 @@ export async function addProduct(formData) {
 
     // A new product row is needed before inserting its first history record.
     if (!product) {
-      const { data, error } = await supabase
+      const checkedAt = new Date().toISOString();
+      const productValues = {
+        user_id: user.id,
+        url,
+        name: getProductDisplayTitle(productData.productName, url),
+        current_price: newPrice,
+        currency,
+        image_url: scrapedImageUrl,
+        updated_at: checkedAt,
+      };
+      let insertResult = await supabase
         .from("products")
-        .insert({
-          user_id: user.id,
-          url,
-          name: getProductDisplayTitle(productData.productName, url),
-          current_price: newPrice,
-          currency,
-          image_url: scrapedImageUrl || "https://placehold.co/600x600?text=No+Image",
-          updated_at: new Date().toISOString(),
-        })
+        .insert({ ...productValues, last_checked_at: checkedAt })
         .select()
         .single();
+      if (insertResult.error?.code === "PGRST204") {
+        warnMissingLastCheckedAtColumn();
+        insertResult = await supabase
+          .from("products")
+          .insert(productValues)
+          .select()
+          .single();
+      }
+      const { data, error } = insertResult;
 
       if (error) {
         console.error("Product insert error:", error);
@@ -193,23 +241,35 @@ export async function addProduct(formData) {
         }
       }
 
-      const { data, error } = await supabase
+      const productValues = {
+        name: getProductDisplayTitle(productData.productName, url),
+        current_price: newPrice,
+        currency,
+        image_url:
+          scrapedImageUrl ||
+          (product.image_url && !product.image_url.includes("placehold.co")
+            ? product.image_url
+            : null),
+        updated_at: nowIso,
+      };
+      let updateResult = await supabase
         .from("products")
-        .update({
-          name: getProductDisplayTitle(productData.productName, url),
-          current_price: newPrice,
-          currency,
-          image_url:
-            scrapedImageUrl ||
-            (product.image_url && !product.image_url.includes("placehold.co")
-              ? product.image_url
-              : "https://placehold.co/600x600?text=No+Image"),
-          updated_at: nowIso,
-        })
+        .update({ ...productValues, last_checked_at: nowIso })
         .eq("id", product.id)
         .eq("user_id", user.id)
         .select()
         .single();
+      if (updateResult.error?.code === "PGRST204") {
+        warnMissingLastCheckedAtColumn();
+        updateResult = await supabase
+          .from("products")
+          .update(productValues)
+          .eq("id", product.id)
+          .eq("user_id", user.id)
+          .select()
+          .single();
+      }
+      const { data, error } = updateResult;
 
       if (error) {
         console.error("Product update error:", error);
@@ -217,6 +277,23 @@ export async function addProduct(formData) {
       }
 
       product = data;
+    }
+
+    const storedImageUrl = await storeProductImage(supabase, {
+      candidates: productData.productImageCandidates,
+      userId: user.id,
+      productId: product.id,
+      referer: url,
+    });
+    if (storedImageUrl && storedImageUrl !== product.image_url) {
+      const { data, error: imageUpdateError } = await supabase
+        .from("products")
+        .update({ image_url: storedImageUrl })
+        .eq("id", product.id)
+        .eq("user_id", user.id)
+        .select()
+        .single();
+      if (!imageUpdateError) product = data;
     }
 
     if (!isUpdate) {
@@ -262,6 +339,55 @@ export async function addProduct(formData) {
         error?.message ||
         "Something went wrong while adding the product.",
     };
+  }
+}
+
+export async function repairProductImage(productId) {
+  if (typeof productId !== "string" || !productId.trim() || productId.length > 128) {
+    return { error: "Product ID is invalid." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Please sign in first." };
+
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("id, url, image_url")
+      .eq("id", productId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (productError || !product) {
+      return { error: "Product not found." };
+    }
+
+    const productData = await scrapeProduct(product.url, { imagesOnly: true });
+    const imageUrl = await storeProductImage(supabase, {
+      candidates: productData.productImageCandidates,
+      userId: user.id,
+      productId: product.id,
+      referer: product.url,
+    });
+    if (!imageUrl) return { error: "No working product image was found." };
+
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({ image_url: imageUrl })
+      .eq("id", product.id)
+      .eq("user_id", user.id);
+    if (updateError) {
+      console.error("Product image repair update failed:", updateError);
+      return { error: "Unable to save the repaired product image." };
+    }
+
+    revalidatePath("/");
+    return { success: true, imageUrl };
+  } catch (error) {
+    console.error("Product image repair failed:", error);
+    return { error: "Unable to refresh this product image right now." };
   }
 }
 
@@ -510,7 +636,7 @@ export async function refreshTrackedProducts() {
 
     const { data: products, error: productsError } = await supabase
       .from("products")
-      .select("url")
+      .select("id, url, name")
       .eq("user_id", user.id);
 
     if (productsError) {
@@ -518,24 +644,87 @@ export async function refreshTrackedProducts() {
       return { error: "Unable to load tracked products." };
     }
 
-    let failed = 0;
-    for (const product of products ?? []) {
-      const formData = new FormData();
-      formData.set("url", product.url);
-      const result = await addProduct(formData);
-      const { error: checkedAtError } = await supabase
-        .from("products")
-        .update({ last_checked_at: new Date().toISOString() })
-        .eq("url", product.url)
-        .eq("user_id", user.id);
-      if (checkedAtError) {
-        console.error("Last checked timestamp update error:", checkedAtError);
+    const failures = [];
+    const makeFailure = (product, reason) => ({
+      productId: product.id,
+      name: getProductDisplayTitle(product.name, product.url),
+      reason: String(reason || "The store could not be refreshed.").slice(0, 240),
+    });
+    const refreshProduct = async (product) => {
+      try {
+        const formData = new FormData();
+        formData.set("url", product.url);
+        formData.set("fastRefresh", "true");
+        const result = await addProduct(formData);
+
+        // A failed scrape must not make an old price look freshly checked.
+        if (!result?.success || result.error) {
+          return makeFailure(product, result?.error || "No fresh product data was returned.");
+        }
+
+        const checkedAt = new Date().toISOString();
+        const { data: checkedProduct, error: checkedAtError } = await supabase
+          .from("products")
+          .update({ last_checked_at: checkedAt, updated_at: checkedAt })
+          .eq("id", product.id)
+          .eq("user_id", user.id)
+          .select("id")
+          .maybeSingle();
+
+        if (checkedAtError) {
+          if (checkedAtError.code === "PGRST204") {
+            warnMissingLastCheckedAtColumn();
+            // Keep the visible fallback timestamp fresh if the optional column
+            // has not been added to this Supabase project yet.
+            const { data: fallbackProduct, error: fallbackError } = await supabase
+              .from("products")
+              .update({ updated_at: checkedAt })
+              .eq("id", product.id)
+              .eq("user_id", user.id)
+              .select("id")
+              .maybeSingle();
+            if (fallbackError || !fallbackProduct) {
+              console.error("Refresh timestamp fallback error:", fallbackError);
+              return makeFailure(product, "The price was fetched, but its checked time could not be saved.");
+            }
+          } else {
+            console.error("Last checked timestamp update error:", checkedAtError);
+            return makeFailure(product, "The price was fetched, but its checked time could not be saved.");
+          }
+        } else if (!checkedProduct) {
+          console.error("Last checked timestamp update found no product:", product.id);
+          return makeFailure(product, "The price was fetched, but its checked time could not be saved.");
+        }
+
+        return null;
+      } catch (error) {
+        console.error("Refresh product failed:", product.id, error);
+        return makeFailure(product, error?.message || "The store could not be reached.");
       }
-      if (result?.error) failed += 1;
-    }
+    };
+
+    const refreshQueue = [...(products ?? [])];
+    const worker = async () => {
+      let product;
+      while ((product = refreshQueue.shift())) {
+        const failure = await refreshProduct(product);
+        if (failure) failures.push(failure);
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(5, refreshQueue.length) },
+        () => worker()
+      )
+    );
 
     revalidatePath("/");
-    return { success: true, total: products?.length ?? 0, failed };
+    return {
+      success: true,
+      total: products?.length ?? 0,
+      failed: failures.length,
+      failures,
+    };
   } catch (error) {
     console.error("Refresh tracked products error:", error);
     return { error: "Unable to refresh tracked products." };

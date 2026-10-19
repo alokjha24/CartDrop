@@ -12,20 +12,39 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { createClient } from "@/utils/supabase/client";
+import { toast } from "sonner";
 
-export function AuthModal({ isOpen, onClose }) {
+const PENDING_PRODUCT_URL_KEY = "cartdrop.pending-product-url";
 
+export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
   const supabase = createClient();
-  const handleGoogleLogin = async() =>{
+  const handleGoogleLogin = async () => {
     const { origin } = window.location;
 
-    await supabase.auth.signInWithOAuth({
-      provider:'google',
-      options:{
-        redirectTo:`${origin}/auth/callback`,
+    if (pendingProductUrl.trim()) {
+      try {
+        window.sessionStorage.setItem(
+          PENDING_PRODUCT_URL_KEY,
+          pendingProductUrl.trim()
+        );
+      } catch (error) {
+        console.error("Unable to save the product link before sign in:", error);
+        toast.error("Unable to keep this product link. Please copy it before signing in.");
+        return;
       }
+    }
 
-    })
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      console.error("Google sign in failed:", error);
+      toast.error(error.message || "Unable to start Google sign in.");
+    }
   };
 
 
@@ -35,7 +54,9 @@ export function AuthModal({ isOpen, onClose }) {
         <DialogHeader>
           <DialogTitle>Sign In</DialogTitle>
           <DialogDescription>
-            Track product and prices and gets alerts on priceDrops.
+            {pendingProductUrl.trim()
+              ? "Sign in and we'll add this product for you."
+              : "Track product prices and get alerts when they drop."}
           </DialogDescription>
         </DialogHeader>
         

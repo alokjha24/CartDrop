@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "./input";
@@ -9,25 +9,20 @@ import { AuthModal } from "./AuthModal";
 import { addProduct } from "@/app/actions/auth";
 import { toast } from "sonner";
 
+const PENDING_PRODUCT_URL_KEY = "cartdrop.pending-product-url";
+
 const AddProductForm = ({ user }) => {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
-
+  const submitProductUrl = useCallback(async (productUrl) => {
     try {
       setLoading(true);
 
       const formData = new FormData();
-      formData.append("url", url);
+      formData.append("url", productUrl.trim());
 
       const result = await addProduct(formData);
 
@@ -44,6 +39,35 @@ const AddProductForm = ({ user }) => {
     } finally {
       setLoading(false);
     }
+  }, [router]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let pendingUrl = "";
+    try {
+      pendingUrl = window.sessionStorage.getItem(PENDING_PRODUCT_URL_KEY) || "";
+      if (pendingUrl) window.sessionStorage.removeItem(PENDING_PRODUCT_URL_KEY);
+    } catch (error) {
+      console.error("Unable to restore the product link after sign in:", error);
+    }
+
+    if (!pendingUrl) return;
+    void Promise.resolve().then(() => {
+      setUrl(pendingUrl);
+      return submitProductUrl(pendingUrl);
+    });
+  }, [user?.id, submitProductUrl]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    await submitProductUrl(url);
   };
 
   return (
@@ -84,6 +108,7 @@ const AddProductForm = ({ user }) => {
       <AuthModal
         isOpen={showAuthModal}
         onClose={() => setShowAuthModal(false)}
+        pendingProductUrl={url}
       />
     </>
   );

@@ -10,6 +10,7 @@ import {
 } from "@/lib/price-history.mjs";
 import { evaluatePriceAlerts } from "@/lib/price-alerts.mjs";
 import { sendPriceAlertEmail } from "@/lib/notifications";
+import { storeProductImage } from "@/lib/product-image-storage.mjs";
 
 export const runtime = "nodejs";
 
@@ -86,6 +87,9 @@ async function runPriceCheck(request) {
 
     try {
       const productData = await scrapeProduct(product.url);
+      if (productData.diagnostics) {
+        console.info("Cron product scrape diagnostics:", productData.diagnostics);
+      }
       const newPrice = normalizePrice(productData?.currentPrice);
 
       if (newPrice === null) {
@@ -167,11 +171,18 @@ async function runPriceCheck(request) {
       }
 
       const oldPrice = normalizePrice(latestHistory?.price ?? product.current_price);
+      const refreshedImageUrl = await storeProductImage(supabase, {
+        candidates: productData.productImageCandidates,
+        userId: product.user_id,
+        productId: product.id,
+        referer: product.url,
+      });
       const { error: productUpdateError } = await supabase
         .from("products")
         .update({
           current_price: newPrice,
           currency,
+          ...(refreshedImageUrl ? { image_url: refreshedImageUrl } : {}),
           updated_at: checkedAt,
         })
         .eq("id", product.id);

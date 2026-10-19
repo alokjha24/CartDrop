@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowDownAZ,
@@ -25,36 +25,40 @@ function getPriceTimestamp(product) {
 
 export default function TrackedProducts({ products }) {
   const router = useRouter();
-  const initialRefreshStarted = useRef(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("recent");
   const [currentTime] = useState(() => Date.now());
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkLoading, setBulkLoading] = useState("");
-  const [initialRefreshState, setInitialRefreshState] = useState("loading");
+  const [refreshAllState, setRefreshAllState] = useState("");
   const [selectionMode, setSelectionMode] = useState(false);
 
-  useEffect(() => {
-    if (initialRefreshStarted.current) return;
-    initialRefreshStarted.current = true;
+  const handleRefreshAll = async () => {
+    if (refreshAllState === "loading" || bulkLoading) return;
+    setRefreshAllState("loading");
 
-    let active = true;
-    void refreshTrackedProducts().then((result) => {
-      if (!active) return;
+    try {
+      const result = await refreshTrackedProducts();
       if (result?.error) {
-        setInitialRefreshState("failed");
+        setRefreshAllState("failed");
         toast.error(result.error);
         return;
       }
-      setInitialRefreshState("done");
-      router.refresh();
-    });
 
-    return () => {
-      active = false;
-    };
-  }, [router]);
+      setRefreshAllState(result.failed ? "partial" : "done");
+      toast.success(
+        result.failed
+          ? `${result.total - result.failed} products refreshed; ${result.failed} failed.`
+          : "All products refreshed."
+      );
+      router.refresh();
+    } catch (error) {
+      console.error("Refresh all products error:", error);
+      setRefreshAllState("failed");
+      toast.error("Unable to refresh all products right now.");
+    }
+  };
 
   const filteredProducts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -136,12 +140,24 @@ export default function TrackedProducts({ products }) {
     const selectedProducts = products.filter((product) => selectedIds.includes(product.id));
     setBulkLoading("refresh");
     let failed = 0;
-    for (const product of selectedProducts) {
-      const formData = new FormData();
-      formData.set("url", product.url);
-      const result = await addProduct(formData);
-      if (result?.error) failed += 1;
-    }
+    const refreshQueue = [...selectedProducts];
+    const worker = async () => {
+      let product;
+      while ((product = refreshQueue.shift())) {
+        try {
+          const formData = new FormData();
+          formData.set("url", product.url);
+          formData.set("fastRefresh", "true");
+          const result = await addProduct(formData);
+          if (!result?.success || result.error) failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(5, refreshQueue.length) }, () => worker())
+    );
     setBulkLoading("");
     if (failed) toast.error(`${failed} product${failed === 1 ? "" : "s"} could not be refreshed.`);
     else toast.success("Selected products refreshed.");
@@ -232,6 +248,19 @@ export default function TrackedProducts({ products }) {
               <option value="name">Name: A to Z</option>
             </select>
           </label>
+          <button
+            type="button"
+            onClick={() => void handleRefreshAll()}
+            disabled={refreshAllState === "loading" || Boolean(bulkLoading)}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#F97316]/70 px-4 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#F97316]/10 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {refreshAllState === "loading" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            {refreshAllState === "loading" ? "Refreshing..." : "Refresh all"}
+          </button>
         </div>
         <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
           <span>
@@ -272,15 +301,9 @@ export default function TrackedProducts({ products }) {
                 </button>
               </>
             )}
-            {initialRefreshState === "loading" && (
-              <p className="mt-3 flex items-center gap-2 text-xs text-[#B8C4D9]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#F97316]" />
-                Checking latest prices from the original stores...
-              </p>
-            )}
-            {initialRefreshState === "failed" && (
+            {refreshAllState === "failed" && (
               <p className="mt-3 text-xs text-amber-200">
-                Latest price check failed. Existing saved prices are shown.
+                Refresh all failed. Existing saved prices are shown.
               </p>
             )}
           </div>
@@ -292,7 +315,7 @@ export default function TrackedProducts({ products }) {
           {filteredProducts.map((product) => {
             return (
               <ProductCard
-                key={`${product.id}-${product.image_url ?? ""}`}
+                key={`${product.id}-${product.image_url ?? ""}-${product.last_checked_at ?? product.updated_at ?? ""}`}
                 product={product}
                 selected={selectedIds.includes(product.id)}
                 onSelect={selectionMode ? toggleSelected : undefined}

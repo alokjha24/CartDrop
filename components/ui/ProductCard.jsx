@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -48,6 +48,7 @@ import {
   deleteProduct,
   getPriceHistory,
   addProduct,
+  repairProductImage,
   updateProduct,
 } from "@/app/actions/auth";
 import {
@@ -61,8 +62,15 @@ import {
   PRICE_RANGES,
   summarizePriceHistory,
 } from "@/lib/price-history.mjs";
-import { getProductDisplayTitle } from "@/lib/product-url.mjs";
-import { getProductImageSrc } from "@/lib/product-image.mjs";
+import {
+  getProductDisplayTitle,
+  getRetailerHomeUrl,
+  getRetailerLabel,
+} from "@/lib/product-url.mjs";
+import {
+  getProductImageSrc,
+  normalizeProductImageUrl,
+} from "@/lib/product-image.mjs";
 
 const ProductCard = ({ product, selected = false, onSelect }) => {
   const router = useRouter();
@@ -87,6 +95,8 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
     getProductImageSrc(product.image_url, product.url)
   );
   const [imageFailed, setImageFailed] = useState(false);
+  const imageRepairAttempts = useRef(new Set());
+  const productImageContainerRef = useRef(null);
   const [mobileChartScrolled, setMobileChartScrolled] = useState(false);
   const chartScrollRef = useRef(null);
   const [alertModalOpen, setAlertModalOpen] = useState(false);
@@ -96,21 +106,128 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const [alertError, setAlertError] = useState("");
   const [alertDrafts, setAlertDrafts] = useState({});
 
+  useEffect(() => {
+    const cacheKey = `cartdrop:image:v2:${product.id}`;
+    const currentSource = getProductImageSrc(product.image_url, product.url);
+    const cachedSource = window.localStorage.getItem(cacheKey);
+    let restoreTimer;
+
+    if (!currentSource && cachedSource) {
+      restoreTimer = window.setTimeout(() => {
+        setImageSource(cachedSource);
+        setImageFailed(false);
+      }, 0);
+    }
+
+    if (currentSource) {
+      window.localStorage.setItem(cacheKey, currentSource);
+    }
+
+    return () => {
+      if (restoreTimer) window.clearTimeout(restoreTimer);
+    };
+  }, [product.id, product.image_url, product.url]);
+
   // ==================================================
   // PRICE
   // ==================================================
 
   const currentPrice = normalizePrice(product.current_price);
   const displayTitle = getProductDisplayTitle(product.name, product.url);
+  const retailerLabel = getRetailerLabel(product.url || product.retailer);
+  const retailerHomeUrl = getRetailerHomeUrl(product.url);
   const productImageSrc = imageSource;
+
+  const repairBrokenImage = useCallback(async () => {
+    const failedUrl = normalizeProductImageUrl(product.image_url, product.url) || imageSource || "missing-image";
+    if (
+      imageRepairAttempts.current.has(failedUrl) ||
+      (failedUrl !== "missing-image" && imageRepairAttempts.current.has("missing-image"))
+    ) {
+      setImageFailed(true);
+      return;
+    }
+
+    imageRepairAttempts.current.add(failedUrl);
+    setImageFailed(true);
+    try {
+      const result = await repairProductImage(product.id);
+      if (!result?.success || !result.imageUrl) {
+        console.error("Product image repair failed:", result?.error || "No usable image was returned.");
+        return;
+      }
+
+      const repairedSource = getProductImageSrc(result.imageUrl, product.url);
+      if (repairedSource && repairedSource !== imageSource) {
+        setImageSource(repairedSource);
+        setImageFailed(false);
+      }
+    } catch {
+      // Keep the placeholder visible if the repair request fails.
+    }
+  }, [imageSource, product.id, product.image_url, product.url]);
 
   const handleImageError = () => {
     if (imageSource?.startsWith("/api/product-image")) {
-      setImageSource(product.image_url);
+      const directImageUrl = normalizeProductImageUrl(product.image_url, product.url);
+      if (directImageUrl && directImageUrl !== imageSource) {
+        setImageSource(directImageUrl);
+        return;
+      }
+      void repairBrokenImage();
       return;
     }
-    setImageFailed(true);
+    void repairBrokenImage();
   };
+
+  const handleImageLoad = (event) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget;
+    if (naturalWidth < 160 || naturalHeight < 160) {
+      void repairBrokenImage();
+      return;
+    }
+
+    setImageFailed(false);
+    if (imageSource) {
+      window.localStorage.setItem(`cartdrop:image:v2:${product.id}`, imageSource);
+    }
+  };
+
+  useEffect(() => {
+    const container = productImageContainerRef.current;
+    if (!product.url || !container) return;
+
+    const repair = () => {
+      const image = container.querySelector("img[data-product-image]");
+      if (imageSource && image?.complete) {
+        if (image.naturalWidth >= 160 && image.naturalHeight >= 160) return;
+        if (imageSource.startsWith("/api/product-image")) {
+          const directImageUrl = normalizeProductImageUrl(product.image_url, product.url);
+          if (directImageUrl && directImageUrl !== imageSource) {
+            setImageSource(directImageUrl);
+            setImageFailed(false);
+            return;
+          }
+        }
+        setImageFailed(true);
+        void repairBrokenImage();
+        return;
+      } else if (imageSource) {
+        return;
+      }
+      void repairBrokenImage();
+    };
+
+    if (imageSource) {
+      const image = container.querySelector("img[data-product-image]");
+      if (image?.complete) repair();
+      return;
+    }
+
+    // Recover missing photos as soon as the card mounts so a placeholder does
+    // not remain indefinitely below the fold.
+    repair();
+  }, [imageSource, product.id, product.image_url, product.url, repairBrokenImage]);
 
   const currency = product.currency || "INR";
 
@@ -289,6 +406,7 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
     try {
       const formData = new FormData();
       formData.set("url", product.url);
+      formData.set("fastRefresh", "true");
       const result = await addProduct(formData);
 
       if (result?.error) {
@@ -479,22 +597,25 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
 
             {/* PRODUCT IMAGE */}
 
-            <div className="glass-card h-[112px] w-[112px] shrink-0 overflow-hidden rounded-xl">
+            <div ref={productImageContainerRef} className="glass-card h-[112px] w-[112px] shrink-0 overflow-hidden rounded-xl">
 
               {productImageSrc && !imageFailed ? (
                 <img
                   src={productImageSrc}
+                  data-product-image="true"
                   alt={displayTitle}
                   className="h-full w-full object-contain bg-transparent"
                   loading="lazy"
                   style={{ imageRendering: "auto" }}
                   onError={handleImageError}
+                  onLoad={handleImageLoad}
                 />
               ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-slate-400">
-                  <span className="text-lg text-slate-500">◇</span>
-                  Image unavailable
-                </div>
+                <img
+                  src="/product-placeholder.svg"
+                  alt={`${displayTitle} image placeholder`}
+                  className="h-full w-full object-contain"
+                />
               )}
 
             </div>
@@ -508,9 +629,22 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
               </CardTitle>
 
               <CardDescription className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-[#1E2B40] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#FDBA74]">
-                  {product.retailer || "Retailer"}
-                </span>
+                {retailerHomeUrl ? (
+                  <a
+                    href={retailerHomeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Visit ${retailerLabel} home page`}
+                    title={`Visit ${retailerLabel}`}
+                    className="rounded-full bg-[#1E2B40] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#FDBA74] transition hover:bg-slate-700 hover:text-amber-200"
+                  >
+                    {retailerLabel}
+                  </a>
+                ) : (
+                  <span className="rounded-full bg-[#1E2B40] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#FDBA74]">
+                    {retailerLabel}
+                  </span>
+                )}
 
                 {/* PRICE */}
 

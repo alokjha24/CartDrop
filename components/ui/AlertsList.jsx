@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Bell, ExternalLink, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { deletePriceAlert, upsertPriceAlert } from "@/app/actions/alerts";
+import { repairProductImage } from "@/app/actions/auth";
 import { getProductDisplayTitle } from "@/lib/product-url.mjs";
 import { normalizePrice } from "@/lib/price-history.mjs";
-import { getProductImageSrc } from "@/lib/product-image.mjs";
+import {
+  getProductImageSrc,
+  normalizeProductImageUrl,
+} from "@/lib/product-image.mjs";
 
 function formatPrice(value, currency = "INR") {
   const price = normalizePrice(value);
@@ -24,6 +28,9 @@ function getAlertCopy(alert) {
 
 export default function AlertsList({ initialAlerts, error }) {
   const [alerts, setAlerts] = useState(initialAlerts);
+  const [fallbackImages, setFallbackImages] = useState({});
+  const [failedImages, setFailedImages] = useState({});
+  const imageRepairAttempts = useRef(new Set());
   const [deletingId, setDeletingId] = useState("");
   const [editingAlert, setEditingAlert] = useState(null);
   const [editAmount, setEditAmount] = useState("");
@@ -106,7 +113,9 @@ export default function AlertsList({ initialAlerts, error }) {
       <div className="grid gap-4 lg:grid-cols-2">
         {alerts.map((alert) => {
           const product = alert.products ?? {};
-          const productImageSrc = getProductImageSrc(product.image_url, product.url);
+          const productImageSrc = failedImages[product.id]
+            ? "/product-placeholder.svg"
+            : fallbackImages[product.id] || getProductImageSrc(product.image_url, product.url) || "/product-placeholder.svg";
           const current = normalizePrice(product.current_price);
           const target = normalizePrice(alert.threshold);
           const reached = alert.alert_type === "target_price" && current !== null && target !== null && current <= target;
@@ -115,7 +124,38 @@ export default function AlertsList({ initialAlerts, error }) {
           return (
             <article key={alert.id} className="glass-card min-w-0 overflow-hidden rounded-3xl">
               <div className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
-                {productImageSrc ? <img src={productImageSrc} alt="" className="h-16 w-16 shrink-0 rounded-2xl bg-[#0B1220] object-contain ring-1 ring-white/10 sm:h-20 sm:w-20" /> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#0B1220] text-xs text-slate-500 sm:h-20 sm:w-20">No image</div>}
+                <img
+                  src={productImageSrc}
+                  alt={productImageSrc === "/product-placeholder.svg" ? "Product image placeholder" : ""}
+                  loading="lazy"
+                  onError={() => {
+                    const directImageUrl = normalizeProductImageUrl(product.image_url, product.url);
+                    if (
+                      productImageSrc.startsWith("/api/product-image") &&
+                      directImageUrl &&
+                      !fallbackImages[product.id]
+                    ) {
+                      setFallbackImages((current) => ({ ...current, [product.id]: directImageUrl }));
+                      return;
+                    }
+                    if (imageRepairAttempts.current.has(product.id)) {
+                      setFailedImages((current) => ({ ...current, [product.id]: true }));
+                      return;
+                    }
+                    imageRepairAttempts.current.add(product.id);
+                    setFailedImages((current) => ({ ...current, [product.id]: true }));
+                    void repairProductImage(product.id)
+                      .then((result) => {
+                        if (!result?.success || !result.imageUrl) return;
+                        const repairedImage = getProductImageSrc(result.imageUrl, product.url);
+                        if (!repairedImage) return;
+                        setFallbackImages((current) => ({ ...current, [product.id]: repairedImage }));
+                        setFailedImages((current) => ({ ...current, [product.id]: false }));
+                      })
+                      .catch(() => {});
+                  }}
+                  className="h-16 w-16 shrink-0 rounded-2xl bg-[#0B1220] object-contain ring-1 ring-white/10 sm:h-20 sm:w-20"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
