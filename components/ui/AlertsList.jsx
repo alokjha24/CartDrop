@@ -6,6 +6,7 @@ import { Bell, ExternalLink, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { deletePriceAlert, upsertPriceAlert } from "@/app/actions/alerts";
 import { getProductDisplayTitle } from "@/lib/product-url.mjs";
 import { normalizePrice } from "@/lib/price-history.mjs";
+import { getProductImageSrc } from "@/lib/product-image.mjs";
 
 function formatPrice(value, currency = "INR") {
   const price = normalizePrice(value);
@@ -105,6 +106,7 @@ export default function AlertsList({ initialAlerts, error }) {
       <div className="grid gap-4 lg:grid-cols-2">
         {alerts.map((alert) => {
           const product = alert.products ?? {};
+          const productImageSrc = getProductImageSrc(product.image_url, product.url);
           const current = normalizePrice(product.current_price);
           const target = normalizePrice(alert.threshold);
           const reached = alert.alert_type === "target_price" && current !== null && target !== null && current <= target;
@@ -113,7 +115,7 @@ export default function AlertsList({ initialAlerts, error }) {
           return (
             <article key={alert.id} className="glass-card min-w-0 overflow-hidden rounded-3xl">
               <div className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
-                {product.image_url ? <img src={product.image_url} alt="" className="h-16 w-16 shrink-0 rounded-2xl bg-[#0B1220] object-contain ring-1 ring-white/10 sm:h-20 sm:w-20" /> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#0B1220] text-xs text-slate-500 sm:h-20 sm:w-20">No image</div>}
+                {productImageSrc ? <img src={productImageSrc} alt="" className="h-16 w-16 shrink-0 rounded-2xl bg-[#0B1220] object-contain ring-1 ring-white/10 sm:h-20 sm:w-20" /> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-[#0B1220] text-xs text-slate-500 sm:h-20 sm:w-20">No image</div>}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">

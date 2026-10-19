@@ -92,9 +92,7 @@ export async function addProduct(formData) {
     // --------------------------------------------------
     // 4. Image URL
     // --------------------------------------------------
-    const imageUrl =
-      productData.productImageUrl?.trim() ||
-      "https://placehold.co/600x600?text=No+Image";
+    const scrapedImageUrl = productData.productImageUrl?.trim() || null;
 
     // --------------------------------------------------
     // 5. Check whether product already exists
@@ -133,7 +131,7 @@ export async function addProduct(formData) {
           name: getProductDisplayTitle(productData.productName, url),
           current_price: newPrice,
           currency,
-          image_url: imageUrl,
+          image_url: scrapedImageUrl || "https://placehold.co/600x600?text=No+Image",
           updated_at: new Date().toISOString(),
         })
         .select()
@@ -201,7 +199,11 @@ export async function addProduct(formData) {
           name: getProductDisplayTitle(productData.productName, url),
           current_price: newPrice,
           currency,
-          image_url: imageUrl,
+          image_url:
+            scrapedImageUrl ||
+            (product.image_url && !product.image_url.includes("placehold.co")
+              ? product.image_url
+              : "https://placehold.co/600x600?text=No+Image"),
           updated_at: nowIso,
         })
         .eq("id", product.id)
@@ -248,7 +250,7 @@ export async function addProduct(formData) {
       message: isUpdate
         ? priceChanged
           ? "Product updated with the latest price!"
-          : "Product is already up to date."
+          : "This product is already tracked and up to date."
         : "Product added successfully!",
       retailer: getRetailerLabel(normalizedUrl.hostname),
     };
@@ -310,6 +312,56 @@ export async function deleteProduct(productId) {
     return {
       error: error?.message || "Failed to delete product.",
     };
+  }
+}
+
+export async function updateProduct(productId, input) {
+  if (!productId) return { error: "Product ID is required." };
+  const name = String(input?.name ?? "").trim();
+  const currency = String(input?.currency ?? "").trim().toUpperCase();
+  if (!name) return { error: "Product name is required." };
+  if (name.length > 160) return { error: "Product name must be 160 characters or fewer." };
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Please sign in first." };
+    const { data, error } = await supabase
+      .from("products")
+      .update({ name, currency: normalizeCurrencyCode(currency) })
+      .eq("id", productId)
+      .eq("user_id", user.id)
+      .select()
+      .single();
+    if (error) {
+      console.error("Update product error:", error);
+      return { error: "Unable to update this product." };
+    }
+    revalidatePath("/");
+    return { success: true, product: data };
+  } catch (error) {
+    console.error("Update Product Error:", error);
+    return { error: "Unable to update this product." };
+  }
+}
+
+export async function deleteProducts(productIds) {
+  const ids = Array.isArray(productIds) ? productIds.filter(Boolean) : [];
+  if (!ids.length) return { error: "Select at least one product." };
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Please sign in first." };
+    const { error } = await supabase.from("products").delete().in("id", ids).eq("user_id", user.id);
+    if (error) {
+      console.error("Delete products error:", error);
+      return { error: "Unable to remove the selected products." };
+    }
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Delete Products Error:", error);
+    return { error: "Unable to remove the selected products." };
   }
 }
 
@@ -444,4 +496,48 @@ export async function signOut() {
   }
 
   redirect("/");
+}
+
+export async function refreshTrackedProducts() {
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      console.error("Refresh products authentication error:", userError);
+      return { error: "Unable to verify your account." };
+    }
+    if (!user) return { error: "Please sign in first." };
+
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("url")
+      .eq("user_id", user.id);
+
+    if (productsError) {
+      console.error("Refresh products lookup error:", productsError);
+      return { error: "Unable to load tracked products." };
+    }
+
+    let failed = 0;
+    for (const product of products ?? []) {
+      const formData = new FormData();
+      formData.set("url", product.url);
+      const result = await addProduct(formData);
+      const { error: checkedAtError } = await supabase
+        .from("products")
+        .update({ last_checked_at: new Date().toISOString() })
+        .eq("url", product.url)
+        .eq("user_id", user.id);
+      if (checkedAtError) {
+        console.error("Last checked timestamp update error:", checkedAtError);
+      }
+      if (result?.error) failed += 1;
+    }
+
+    revalidatePath("/");
+    return { success: true, total: products?.length ?? 0, failed };
+  } catch (error) {
+    console.error("Refresh tracked products error:", error);
+    return { error: "Unable to refresh tracked products." };
+  }
 }

@@ -24,6 +24,7 @@ import {
   Activity,
   RefreshCw,
   Bell,
+  Pencil,
 } from "lucide-react";
 
 import {
@@ -47,6 +48,7 @@ import {
   deleteProduct,
   getPriceHistory,
   addProduct,
+  updateProduct,
 } from "@/app/actions/auth";
 import {
   deletePriceAlert,
@@ -60,8 +62,9 @@ import {
   summarizePriceHistory,
 } from "@/lib/price-history.mjs";
 import { getProductDisplayTitle } from "@/lib/product-url.mjs";
+import { getProductImageSrc } from "@/lib/product-image.mjs";
 
-const ProductCard = ({ product }) => {
+const ProductCard = ({ product, selected = false, onSelect }) => {
   const router = useRouter();
 
   const [chartModalOpen, setChartModalOpen] = useState(false);
@@ -69,11 +72,20 @@ const ProductCard = ({ product }) => {
   const [loadingChart, setLoadingChart] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshCooldown, setRefreshCooldown] = useState(false);
+  const [refreshState, setRefreshState] = useState("");
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editName, setEditName] = useState(product.name ?? "");
+  const [editCurrency, setEditCurrency] = useState(product.currency ?? "INR");
+  const [savingEdit, setSavingEdit] = useState(false);
   const [currentTime] = useState(() => Date.now());
 
   const [priceHistory, setPriceHistory] = useState([]);
   const [historyAsOf, setHistoryAsOf] = useState(null);
   const [error, setError] = useState("");
+  const [imageSource, setImageSource] = useState(() =>
+    getProductImageSrc(product.image_url, product.url)
+  );
   const [imageFailed, setImageFailed] = useState(false);
   const [mobileChartScrolled, setMobileChartScrolled] = useState(false);
   const chartScrollRef = useRef(null);
@@ -90,6 +102,15 @@ const ProductCard = ({ product }) => {
 
   const currentPrice = normalizePrice(product.current_price);
   const displayTitle = getProductDisplayTitle(product.name, product.url);
+  const productImageSrc = imageSource;
+
+  const handleImageError = () => {
+    if (imageSource?.startsWith("/api/product-image")) {
+      setImageSource(product.image_url);
+      return;
+    }
+    setImageFailed(true);
+  };
 
   const currency = product.currency || "INR";
 
@@ -260,8 +281,10 @@ const ProductCard = ({ product }) => {
   };
 
   const handleRefresh = async () => {
+    if (refreshing || refreshCooldown) return;
     setRefreshing(true);
     setError("");
+    setRefreshState("");
 
     try {
       const formData = new FormData();
@@ -270,9 +293,13 @@ const ProductCard = ({ product }) => {
 
       if (result?.error) {
         setError(result.error);
+        setRefreshState("failed");
         return;
       }
 
+      setRefreshState("success");
+      setRefreshCooldown(true);
+      window.setTimeout(() => setRefreshCooldown(false), 5000);
       router.refresh();
       if (chartModalOpen) {
         await loadPriceHistory();
@@ -280,8 +307,31 @@ const ProductCard = ({ product }) => {
     } catch (error) {
       console.error("Refresh price error:", error);
       setError("Unable to refresh the price right now.");
+      setRefreshState("failed");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleSaveProduct = async () => {
+    setSavingEdit(true);
+    setError("");
+    try {
+      const result = await updateProduct(product.id, {
+        name: editName,
+        currency: editCurrency,
+      });
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      setEditModalOpen(false);
+      router.refresh();
+    } catch (saveError) {
+      console.error("Update product error:", saveError);
+      setError("Unable to update this product.");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -296,8 +346,8 @@ const ProductCard = ({ product }) => {
     now: historyNow,
     productId: product.id,
   });
-  const currentTimestamp = product.updated_at
-    ? new Date(product.updated_at).getTime()
+  const currentTimestamp = (product.last_checked_at || product.updated_at)
+    ? new Date(product.last_checked_at || product.updated_at).getTime()
     : 0;
   const currentHistoryPoint =
     currentPrice !== null &&
@@ -415,19 +465,30 @@ const ProductCard = ({ product }) => {
         <CardHeader className="p-5 lg:p-6">
 
           <div className="flex items-start gap-4">
+            {onSelect && (
+              <label className="mt-1 shrink-0">
+                <span className="sr-only">Select {displayTitle}</span>
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={(event) => onSelect(product.id, event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-[#F97316]"
+                />
+              </label>
+            )}
 
             {/* PRODUCT IMAGE */}
 
             <div className="glass-card h-[112px] w-[112px] shrink-0 overflow-hidden rounded-xl">
 
-              {product.image_url && !imageFailed ? (
+              {productImageSrc && !imageFailed ? (
                 <img
-                  src={product.image_url}
+                  src={productImageSrc}
                   alt={displayTitle}
                   className="h-full w-full object-contain bg-transparent"
                   loading="lazy"
                   style={{ imageRendering: "auto" }}
-                  onError={() => setImageFailed(true)}
+                  onError={handleImageError}
                 />
               ) : (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-slate-400">
@@ -467,14 +528,22 @@ const ProductCard = ({ product }) => {
 
                 </span>
                 <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                  product.updated_at && currentTime - new Date(product.updated_at).getTime() <= 24 * 60 * 60 * 1000
+                  (product.last_checked_at || product.updated_at) && currentTime - new Date(product.last_checked_at || product.updated_at).getTime() <= 24 * 60 * 60 * 1000
                     ? "bg-emerald-400/15 text-[#34D399]"
                       : "bg-amber-300/15 text-[#FFE082]"
                 }`}>
-                  {product.updated_at && currentTime - new Date(product.updated_at).getTime() <= 24 * 60 * 60 * 1000
+                  {(product.last_checked_at || product.updated_at) && currentTime - new Date(product.last_checked_at || product.updated_at).getTime() <= 24 * 60 * 60 * 1000
                     ? "Checked today"
                     : "Needs refresh"}
                 </span>
+                {refreshState === "success" && (
+                  <span className="text-xs font-medium text-emerald-300">Refresh complete</span>
+                )}
+                {refreshState === "failed" && (
+                  <button type="button" onClick={handleRefresh} className="text-xs font-medium text-red-300 underline">
+                    Retry
+                  </button>
+                )}
 
               </CardDescription>
 
@@ -497,11 +566,11 @@ const ProductCard = ({ product }) => {
             <button
               type="button"
               onClick={handleRefresh}
-              disabled={refreshing}
+              disabled={refreshing || refreshCooldown}
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#F97316] bg-[#F97316]/10 px-4 text-sm font-medium text-[#FDBA74] shadow-sm transition hover:bg-[#F97316]/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "Refreshing..." : "Refresh price"}
+              {refreshing ? "Refreshing..." : refreshCooldown ? "Try again shortly" : "Refresh price"}
             </button>
 
             {/* SHOW CHART */}
@@ -555,6 +624,19 @@ const ProductCard = ({ product }) => {
               Alert settings
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setEditName(product.name ?? "");
+                setEditCurrency(product.currency ?? "INR");
+                setEditModalOpen(true);
+              }}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-[#1E2B40] px-4 text-sm font-medium text-[#B8C4D9] shadow-sm transition hover:bg-slate-700"
+            >
+              <Pencil className="h-4 w-4" />
+              Edit product
+            </button>
+
             {/* REMOVE */}
 
             <button
@@ -595,8 +677,8 @@ const ProductCard = ({ product }) => {
 <CardFooter className="border-t border-white/10 bg-[#0B1220]/45 px-5 py-3 text-xs text-[#B8C4D9] backdrop-blur-md">
   <span>
     Last checked{" "}
-    {product.updated_at
-      ? new Date(product.updated_at).toLocaleString("en-IN", {
+    {(product.last_checked_at || product.updated_at)
+      ? new Date(product.last_checked_at || product.updated_at).toLocaleString("en-IN", {
           timeZone: "Asia/Kolkata",
           day: "2-digit",
           month: "2-digit",
@@ -612,6 +694,48 @@ const ProductCard = ({ product }) => {
 
       </Card>
 
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent className="border-slate-700 bg-[#0B1220] text-[#F8FAFC] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit tracked product</DialogTitle>
+            <DialogDescription className="text-[#B8C4D9]">
+              Change the display name or preferred currency. The last checked time is preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <label className="block text-sm font-medium text-[#B8C4D9]">
+              Product name
+              <input
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                maxLength={160}
+                className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-[#111C2E] px-3 text-[#F8FAFC] outline-none focus:border-[#F97316]"
+              />
+            </label>
+            <label className="block text-sm font-medium text-[#B8C4D9]">
+              Currency
+              <select
+                value={editCurrency}
+                onChange={(event) => setEditCurrency(event.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-[#111C2E] px-3 text-[#F8FAFC] outline-none focus:border-[#F97316]"
+              >
+                {["INR", "USD", "EUR", "GBP", "AED", "CAD", "AUD", "JPY"].map((code) => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setEditModalOpen(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-[#B8C4D9]">
+                Cancel
+              </button>
+              <button type="button" onClick={() => void handleSaveProduct()} disabled={savingEdit} className="rounded-lg bg-[#F97316] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                {savingEdit ? "Saving..." : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={chartModalOpen}
         onOpenChange={(open) => {
@@ -624,12 +748,12 @@ const ProductCard = ({ product }) => {
         <DialogContent id={`price-history-${product.id}`} className="glass-card max-w-5xl overflow-hidden rounded-3xl p-0 text-[#F8FAFC] shadow-2xl sm:max-w-5xl data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
           <div className="grid max-h-[85vh] overflow-hidden md:grid-cols-[320px_1fr]">
             <div className="hidden items-center justify-center overflow-hidden bg-[#0B1220] p-5 md:flex">
-              {product.image_url && !imageFailed ? (
+              {productImageSrc && !imageFailed ? (
                 <img
-                  src={product.image_url}
+                  src={productImageSrc}
                   alt={displayTitle}
                   className="h-[420px] w-full rounded-2xl bg-[#172337] object-contain shadow-sm"
-                  onError={() => setImageFailed(true)}
+                  onError={handleImageError}
                 />
               ) : (
                 <div className="flex h-[220px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-[#172337] text-sm text-[#B8C4D9]">
@@ -656,9 +780,9 @@ const ProductCard = ({ product }) => {
                     : "mb-0 -translate-y-3 opacity-0"
                 }`}
               >
-                {product.image_url && !imageFailed ? (
+                {productImageSrc && !imageFailed ? (
                   <img
-                    src={product.image_url}
+                    src={productImageSrc}
                     alt=""
                     className="h-12 w-12 shrink-0 rounded-lg bg-[#172337] object-contain ring-1 ring-white/10"
                   />
@@ -691,14 +815,14 @@ const ProductCard = ({ product }) => {
                     : "max-h-52 translate-y-0 opacity-100"
                 }`}
               >
-                {product.image_url && !imageFailed ? (
+                {productImageSrc && !imageFailed ? (
                   <img
-                    src={product.image_url}
+                    src={productImageSrc}
                     alt={displayTitle}
                     className={`h-44 w-full rounded-xl bg-[#172337] object-contain shadow-sm transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                       mobileChartScrolled ? "scale-95" : "scale-100"
                     }`}
-                    onError={() => setImageFailed(true)}
+                    onError={handleImageError}
                   />
                 ) : (
                   <div className="flex h-44 w-full items-center justify-center rounded-xl border border-dashed border-slate-700 bg-[#172337] text-sm text-[#B8C4D9]">

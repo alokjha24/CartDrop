@@ -250,6 +250,30 @@ export async function deletePriceAlert(productId, alertId) {
   return { success: true };
 }
 
+export async function setProductsAlertsEnabled(productIds, enabled) {
+  const ids = Array.isArray(productIds) ? productIds.filter(Boolean) : [];
+  if (!ids.length) return { error: "Select at least one product." };
+  const supabase = await createClient();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError) {
+    console.error("Bulk alert authentication error:", userError);
+    return { error: "Unable to verify your account." };
+  }
+  if (!user) return { error: "Please sign in first." };
+  const { error } = await supabase
+    .from("price_alerts")
+    .update({ enabled: Boolean(enabled), updated_at: new Date().toISOString() })
+    .in("product_id", ids)
+    .eq("user_id", user.id);
+  if (error) {
+    console.error("Bulk alert update error:", error);
+    return { error: "Unable to update selected alerts." };
+  }
+  revalidatePath("/");
+  revalidatePath("/alerts");
+  return { success: true };
+}
+
 export async function getPriceAlertEvents(limit = 30) {
   const safeLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
   const supabase = await createClient();

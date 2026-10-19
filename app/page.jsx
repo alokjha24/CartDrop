@@ -50,7 +50,7 @@ export default async function Home() {
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0B1220]/55 shadow-lg shadow-black/20 backdrop-blur-3xl supports-[backdrop-filter]:bg-[#0B1220]/35">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8">
           <Link href="/" className="shrink-0" aria-label="CartDrop home">
-            <Image src="/logo.png" alt="CartDrop" width={600} height={200} className="h-9 w-auto" priority />
+            <Image src="/logoCD.png" alt="CartDrop" width={600} height={200} className="h-9 w-auto" priority />
           </Link>
           <nav className="hidden items-center gap-6 text-sm font-medium text-[#B8C4D9] md:flex">
             <a href="#tracked" className="transition hover:text-[#F97316]">Price tracker</a>
