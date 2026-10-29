@@ -471,6 +471,36 @@ export async function updateProduct(productId, input) {
   }
 }
 
+export async function toggleProductFavorite(productId, isFavorite) {
+  if (!productId) return { error: "Product ID is required." };
+  if (typeof isFavorite !== "boolean") return { error: "Favorite state is invalid." };
+
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Please sign in first." };
+
+    const { data, error } = await supabase
+      .from("products")
+      .update({ is_favorite: isFavorite })
+      .eq("id", productId)
+      .eq("user_id", user.id)
+      .select("id, is_favorite")
+      .single();
+
+    if (error) {
+      console.error("Toggle product favorite error:", error);
+      return { error: "Unable to update this favorite right now." };
+    }
+
+    revalidatePath("/");
+    return { success: true, product: data };
+  } catch (error) {
+    console.error("Toggle Product Favorite Error:", error);
+    return { error: "Unable to update this favorite right now." };
+  }
+}
+
 export async function deleteProducts(productIds) {
   const ids = Array.isArray(productIds) ? productIds.filter(Boolean) : [];
   if (!ids.length) return { error: "Select at least one product." };

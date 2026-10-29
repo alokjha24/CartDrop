@@ -85,6 +85,9 @@ export default function TrackedProducts({ products }) {
     });
 
     return [...matchingProducts].sort((a, b) => {
+      if (Boolean(a.is_favorite) !== Boolean(b.is_favorite)) {
+        return a.is_favorite ? -1 : 1;
+      }
       if (sort === "low") {
         return (normalizePrice(a.current_price) ?? Infinity) -
           (normalizePrice(b.current_price) ?? Infinity);

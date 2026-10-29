@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Bell,
   Pencil,
+  Star,
 } from "lucide-react";
 
 import {
@@ -50,6 +51,7 @@ import {
   addProduct,
   repairProductImage,
   updateProduct,
+  toggleProductFavorite,
 } from "@/app/actions/auth";
 import {
   deletePriceAlert,
@@ -86,6 +88,8 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const [editName, setEditName] = useState(product.name ?? "");
   const [editCurrency, setEditCurrency] = useState(product.currency ?? "INR");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(Boolean(product.is_favorite));
+  const [savingFavorite, setSavingFavorite] = useState(false);
   const [currentTime] = useState(() => Date.now());
 
   const [priceHistory, setPriceHistory] = useState([]);
@@ -453,6 +457,28 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
     }
   };
 
+  const handleToggleFavorite = async () => {
+    if (savingFavorite) return;
+    const nextFavorite = !isFavorite;
+    setSavingFavorite(true);
+    setIsFavorite(nextFavorite);
+    try {
+      const result = await toggleProductFavorite(product.id, nextFavorite);
+      if (result?.error) {
+        setIsFavorite(!nextFavorite);
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    } catch (favoriteError) {
+      console.error("Toggle favorite error:", favoriteError);
+      setIsFavorite(!nextFavorite);
+      setError("Unable to update this favorite right now.");
+    } finally {
+      setSavingFavorite(false);
+    }
+  };
+
   // ==================================================
   // PRICE HISTORY CALCULATIONS
   // ==================================================
@@ -623,10 +649,22 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
             {/* PRODUCT INFO */}
 
             <div className="min-w-0 flex-1">
-
-              <CardTitle className="line-clamp-2 text-[18px] font-semibold leading-6">
-                {displayTitle}
-              </CardTitle>
+              <div className="flex items-start gap-2">
+                <CardTitle className="line-clamp-2 flex-1 text-[18px] font-semibold leading-6">
+                  {displayTitle}
+                </CardTitle>
+                <button
+                  type="button"
+                  onClick={() => void handleToggleFavorite()}
+                  disabled={savingFavorite}
+                  aria-label={isFavorite ? `Remove ${displayTitle} from favorites` : `Add ${displayTitle} to favorites`}
+                  aria-pressed={isFavorite}
+                  title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                  className="shrink-0 rounded-lg p-1.5 text-amber-300 transition hover:bg-amber-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Star className={`h-5 w-5 ${isFavorite ? "fill-current" : ""}`} />
+                </button>
+              </div>
 
               <CardDescription className="mt-3 flex flex-wrap items-center gap-2">
                 {retailerHomeUrl ? (
