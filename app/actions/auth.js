@@ -486,12 +486,22 @@ export async function toggleProductFavorite(productId, isFavorite) {
       .eq("id", productId)
       .eq("user_id", user.id)
       .select("id, is_favorite")
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error("Toggle product favorite error:", error);
+      if (
+        ["PGRST204", "42703"].includes(error.code) &&
+        /is_favorite/i.test(error.message || "")
+      ) {
+        return {
+          error: "Favorites are not enabled in the database yet. Apply migration 20261028010000_add_product_favorites.sql, then try again.",
+        };
+      }
       return { error: "Unable to update this favorite right now." };
     }
+
+    if (!data) return { error: "This product could not be updated. Refresh the page and try again." };
 
     revalidatePath("/");
     return { success: true, product: data };

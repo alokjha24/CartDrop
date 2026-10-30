@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import AddProductForm from "@/components/ui/AddProductForm";
 import AuthButton from "@/components/ui/AuthButton";
+import FavoritesButton from "@/components/ui/FavoritesButton";
 import { createClient } from "@/utils/supabase/server";
 import { getProducts } from "./actions/auth";
 import TrackedProducts from "@/components/ui/TrackedProducts";
@@ -61,14 +62,17 @@ export default async function Home() {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             {user && (
-              <Link
-                href="/alerts"
-                aria-label="View all alerts"
-                title="View all alerts"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#F97316]/60 text-[#FDBA74] transition hover:bg-orange-500/10 sm:h-10 sm:w-10"
-              >
-                <Bell className="h-4 w-4" />
-              </Link>
+              <>
+                <FavoritesButton products={products} />
+                <Link
+                  href="/alerts"
+                  aria-label="View all alerts"
+                  title="View all alerts"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#F97316]/60 text-[#FDBA74] transition hover:bg-orange-500/10 sm:h-10 sm:w-10"
+                >
+                  <Bell className="h-4 w-4" />
+                </Link>
+              </>
             )}
             <AuthButton user={user} />
           </div>

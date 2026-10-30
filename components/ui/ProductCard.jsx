@@ -27,6 +27,7 @@ import {
   Pencil,
   Star,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Card,
@@ -109,6 +110,10 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const [alertSaved, setAlertSaved] = useState(false);
   const [alertError, setAlertError] = useState("");
   const [alertDrafts, setAlertDrafts] = useState({});
+
+  useEffect(() => {
+    setIsFavorite(Boolean(product.is_favorite));
+  }, [product.is_favorite]);
 
   useEffect(() => {
     const cacheKey = `cartdrop:image:v2:${product.id}`;
@@ -467,13 +472,18 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
       if (result?.error) {
         setIsFavorite(!nextFavorite);
         setError(result.error);
+        toast.error(result.error);
         return;
       }
+      setError("");
+      toast.success(nextFavorite ? "Added to favorites." : "Removed from favorites.");
       router.refresh();
     } catch (favoriteError) {
       console.error("Toggle favorite error:", favoriteError);
       setIsFavorite(!nextFavorite);
-      setError("Unable to update this favorite right now.");
+      const message = "Unable to update this favorite right now.";
+      setError(message);
+      toast.error(message);
     } finally {
       setSavingFavorite(false);
     }
