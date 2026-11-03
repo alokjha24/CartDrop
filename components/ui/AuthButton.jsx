@@ -16,10 +16,11 @@ const AuthButton = ({ user }) => {
         <Button
           size="sm"
           type="submit"
+          aria-label="Sign out"
           className="gap-2 bg-[#F97316] text-white hover:bg-[#EA580C]"
         >
           <LogOut className="w-4 h-4" />
-          Sign Out
+          <span className="max-[359px]:hidden">Sign Out</span>
         </Button>
       </form>
     );
@@ -29,10 +30,11 @@ const AuthButton = ({ user }) => {
     <>
       <Button
         onClick={() => setShowAuthModal(true)}
+        aria-label="Sign in"
         className="gap-2 bg-[#F97316] text-white hover:bg-[#EA580C]"
       >
         <LogIn className="w-4 h-4" />
-        Sign In
+        <span className="max-[359px]:hidden">Sign In</span>
       </Button>
 
       <AuthModal

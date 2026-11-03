@@ -485,7 +485,6 @@ export async function deleteProduct(productId) {
 export async function updateProduct(productId, input) {
   if (!productId) return { error: "Product ID is required." };
   const name = String(input?.name ?? "").trim();
-  const currency = String(input?.currency ?? "").trim().toUpperCase();
   if (!name) return { error: "Product name is required." };
   if (name.length > 160) return { error: "Product name must be 160 characters or fewer." };
 
@@ -495,7 +494,7 @@ export async function updateProduct(productId, input) {
     if (!user) return { error: "Please sign in first." };
     const { data, error } = await supabase
       .from("products")
-      .update({ name, currency: normalizeCurrencyCode(currency) })
+      .update({ name })
       .eq("id", productId)
       .eq("user_id", user.id)
       .select()

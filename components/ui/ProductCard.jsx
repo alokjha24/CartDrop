@@ -60,6 +60,7 @@ import {
   upsertPriceAlert,
 } from "@/app/actions/alerts";
 import {
+  createCurrentPriceHistoryPoint,
   getPriceHistoryForRange,
   normalizePrice,
   PRICE_RANGES,
@@ -87,7 +88,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const [refreshState, setRefreshState] = useState("");
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editName, setEditName] = useState(product.name ?? "");
-  const [editCurrency, setEditCurrency] = useState(product.currency ?? "INR");
   const [savingEdit, setSavingEdit] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [currentTime] = useState(() => Date.now());
@@ -444,7 +444,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
     try {
       const result = await updateProduct(product.id, {
         name: editName,
-        currency: editCurrency,
       });
       if (result?.error) {
         setError(result.error);
@@ -496,23 +495,9 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
     range: selectedRange,
     now: historyNow,
     productId: product.id,
+    currency,
   });
-  const currentTimestamp = (product.last_checked_at || product.updated_at)
-    ? new Date(product.last_checked_at || product.updated_at).getTime()
-    : 0;
-  const currentHistoryPoint =
-    currentPrice !== null &&
-    Number.isFinite(currentTimestamp) &&
-    currentTimestamp <= historyNow
-      ? {
-          id: `current-${product.id}`,
-          product_id: product.id,
-          checked_at: product.updated_at,
-          timestamp: currentTimestamp,
-          price: currentPrice,
-          currency,
-        }
-      : null;
+  const currentHistoryPoint = createCurrentPriceHistoryPoint(product, { now: historyNow });
   const currentPointInRange = currentHistoryPoint
     ? getPriceHistoryForRange([currentHistoryPoint], {
         range: selectedRange,
@@ -522,11 +507,7 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
     : null;
   const chartData =
     currentPointInRange &&
-    !storedChartData.some(
-      (record) =>
-        record.timestamp === currentPointInRange.timestamp &&
-        record.price === currentPointInRange.price
-    )
+    storedChartData.at(-1)?.price !== currentPointInRange.price
       ? [...storedChartData, currentPointInRange].sort(
           (a, b) => a.timestamp - b.timestamp
         )
@@ -564,6 +545,7 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const highestPrice = priceSummary.highestPrice;
   const typicalPrice = priceSummary.typicalPrice ?? priceSummary.averagePrice;
   const priceDifference = priceSummary.change ?? 0;
+  const pricePercentageChange = priceSummary.percentageChange;
 
   const priceDropped = priceDifference < 0;
   const priceIncreased = priceDifference > 0;
@@ -822,7 +804,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
               type="button"
               onClick={() => {
                 setEditName(product.name ?? "");
-                setEditCurrency(product.currency ?? "INR");
                 setEditModalOpen(true);
               }}
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-700 bg-[#1E2B40] px-4 text-sm font-medium text-[#B8C4D9] shadow-sm transition hover:bg-slate-700"
@@ -893,7 +874,7 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
           <DialogHeader>
             <DialogTitle>Edit tracked product</DialogTitle>
             <DialogDescription className="text-[#B8C4D9]">
-              Change the display name or preferred currency. The last checked time is preserved.
+              Change the display name. Price currency follows verified store data.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -905,18 +886,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
                 maxLength={160}
                 className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-[#111C2E] px-3 text-[#F8FAFC] outline-none focus:border-[#F97316]"
               />
-            </label>
-            <label className="block text-sm font-medium text-[#B8C4D9]">
-              Currency
-              <select
-                value={editCurrency}
-                onChange={(event) => setEditCurrency(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-700 bg-[#111C2E] px-3 text-[#F8FAFC] outline-none focus:border-[#F97316]"
-              >
-                {["INR", "USD", "EUR", "GBP", "AED", "CAD", "AUD", "JPY"].map((code) => (
-                  <option key={code} value={code}>{code}</option>
-                ))}
-              </select>
             </label>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setEditModalOpen(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-[#B8C4D9]">
@@ -1121,14 +1090,14 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
                   {priceDropped && (
                     <div className="flex items-center gap-2 text-sm font-medium text-green-600">
                       <TrendingDown className="h-4 w-4" />
-                      Price dropped by {formatPrice(Math.abs(priceDifference))} since the first sample in this range
+                      Price dropped by {formatPrice(Math.abs(priceDifference))} ({Math.abs(pricePercentageChange).toFixed(1)}%) since the first sample in this range
                     </div>
                   )}
 
                   {priceIncreased && (
                     <div className="flex items-center gap-2 text-sm font-medium text-red-600">
                       <TrendingUp className="h-4 w-4" />
-                      Price increased by {formatPrice(priceDifference)} since the first sample in this range
+                      Price increased by {formatPrice(priceDifference)} ({pricePercentageChange.toFixed(1)}%) since the first sample in this range
                     </div>
                   )}
 
@@ -1138,7 +1107,7 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
                         Price history
                       </p>
                       <p className="text-xs text-[#B8C4D9]">
-                        {priceSummary.sampleCount} samples · Updated{" "}
+                        {priceSummary.sampleCount} samples · Loaded{" "}
                         {historyAsOf ? formatChartDateTime(historyAsOf) : "just now"}
                       </p>
                     </div>

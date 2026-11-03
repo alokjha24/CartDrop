@@ -49,7 +49,7 @@ export default async function Home() {
         <div className="background-orb background-orb-orange" />
       </div>
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0B1220]/55 shadow-lg shadow-black/20 backdrop-blur-3xl supports-[backdrop-filter]:bg-[#0B1220]/35">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8 max-[359px]:gap-2 max-[359px]:px-3">
           <Link href="/" className="shrink-0" aria-label="CartDrop home">
             <Image src="/logoCD.png" alt="CartDrop" width={600} height={200} className="h-9 w-auto" priority />
           </Link>
@@ -60,7 +60,7 @@ export default async function Home() {
               <Sparkles className="h-3.5 w-3.5" /> Smart shopping
             </span>
           </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 max-[359px]:gap-1">
             {user && (
               <>
                 <FavoritesButton products={products} />
@@ -116,9 +116,9 @@ export default async function Home() {
           </div>
           <div className="mt-12 grid max-w-3xl grid-cols-3 gap-2 sm:gap-5">
             {[
-              ["Live", "selling prices"],
-              ["7D / 1M / 3M", "history views"],
-              ["Any store", "one dashboard"],
+              ["Verified", "selling prices"],
+              ["6 ranges", "7D to all-time history"],
+              ["More stores", "support being added"],
             ].map(([value, label]) => (
               <div key={label} className="min-w-0 rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm sm:p-4">
                 <p className="whitespace-nowrap text-[clamp(0.82rem,3.8vw,1.5rem)] font-bold tracking-tight">{value}</p>
