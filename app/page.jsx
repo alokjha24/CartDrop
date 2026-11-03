@@ -95,6 +95,20 @@ export default async function Home() {
             <div className="mt-8">
               <AddProductForm user={user} />
             </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="Supported stores">
+              <span className="mr-1 text-xs font-medium text-slate-400">Stores</span>
+              {["Flipkart", "Myntra", "Savana", "Zara"].map((store) => (
+                <span
+                  key={store}
+                  className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-[#FDBA74]"
+                >
+                  #{store}
+                </span>
+              ))}
+              <span className="rounded-full border border-dashed border-white/15 px-3 py-1 text-xs text-slate-400">
+                More coming
+              </span>
+            </div>
             <p className="mt-4 flex items-center gap-2 text-xs text-slate-400">
               <ShieldCheck className="h-4 w-4 text-[#168A52]" />
               No fake discounts. No invented ratings. Just the price we can verify.
