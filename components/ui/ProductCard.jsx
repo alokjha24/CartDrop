@@ -89,7 +89,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const [editName, setEditName] = useState(product.name ?? "");
   const [editCurrency, setEditCurrency] = useState(product.currency ?? "INR");
   const [savingEdit, setSavingEdit] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(Boolean(product.is_favorite));
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [currentTime] = useState(() => Date.now());
 
@@ -110,10 +109,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
   const [alertSaved, setAlertSaved] = useState(false);
   const [alertError, setAlertError] = useState("");
   const [alertDrafts, setAlertDrafts] = useState({});
-
-  useEffect(() => {
-    setIsFavorite(Boolean(product.is_favorite));
-  }, [product.is_favorite]);
 
   useEffect(() => {
     const cacheKey = `cartdrop:image:v2:${product.id}`;
@@ -467,13 +462,11 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
 
   const handleToggleFavorite = async () => {
     if (savingFavorite) return;
-    const nextFavorite = !isFavorite;
+    const nextFavorite = !Boolean(product.is_favorite);
     setSavingFavorite(true);
-    setIsFavorite(nextFavorite);
     try {
       const result = await toggleProductFavorite(product.id, nextFavorite);
       if (result?.error) {
-        setIsFavorite(!nextFavorite);
         setError(result.error);
         toast.error(result.error);
         return;
@@ -483,7 +476,6 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
       router.refresh();
     } catch (favoriteError) {
       console.error("Toggle favorite error:", favoriteError);
-      setIsFavorite(!nextFavorite);
       const message = "Unable to update this favorite right now.";
       setError(message);
       toast.error(message);
@@ -491,6 +483,8 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
       setSavingFavorite(false);
     }
   };
+
+  const isFavorite = Boolean(product.is_favorite);
 
   // ==================================================
   // PRICE HISTORY CALCULATIONS

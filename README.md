@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# CartDrop
 
-## Getting Started
+CartDrop tracks product prices, keeps a price history, and sends email when a saved target price is reached. It uses Next.js 16, Supabase for authentication and data, Firecrawl plus page metadata for product extraction, and Resend for email.
 
-First, run the development server:
+## Requirements
+
+- Node.js 20.9 or newer
+- A Supabase project with the existing `products` and `price_history` tables
+- A Firecrawl API key for product extraction
+- A Resend API key and verified sender for email alerts
+- A Vercel deployment for the scheduled daily price check
+
+## Run locally
 
 ```bash
+npm ci
+cp .env.example .env
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Fill in `.env` with the Supabase URL and publishable key. Add the service role key, Firecrawl key, and Resend settings for the scheduled checker and email alerts. Keep server-only keys out of variables prefixed with `NEXT_PUBLIC_`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+Open [http://localhost:3000](http://localhost:3000). Configure Google OAuth in Supabase and allow the local and deployed `/auth/callback` URLs in the provider and Supabase redirect settings.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Supabase setup
 
-## Learn More
+Apply the SQL files in `supabase/migrations/` in timestamp order to the existing Supabase project. They add price alerts, last-check timestamps, product image storage, original prices, favorites, and an index for the scheduled price-check queue. The migrations assume the original `products` and `price_history` tables already exist.
 
-To learn more about Next.js, take a look at the following resources:
+The product image bucket is public so product photos can load without an authenticated request. Upload policies restrict writes to a user's own storage folder.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Scheduled price checks
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`vercel.json` runs `/api/cron/check-prices` daily at 00:30 UTC. Set `CRON_SECRET` and `SUPABASE_SERVICE_ROLE_KEY` in the deployment environment. The cron endpoint rejects requests without `Authorization: Bearer <CRON_SECRET>`.
 
-## Deploy on Vercel
+The route selects the least recently checked products first. Optional limits are `CRON_PRODUCT_BATCH_SIZE` (default 50, maximum 200), `CRON_PRODUCT_CONCURRENCY` (default 4, maximum 10), and `CRON_MAX_PRODUCTS` (default 500, maximum 5,000).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Commands
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run dev       # local development
+npm run lint      # ESLint
+npm test          # unit tests
+npm run build     # production build
+npm start         # serve a production build
+```
+
+## Main features
+
+- Track products from retailer URLs and refresh prices manually or on a schedule.
+- View verified price history over 7-day, 30-day, 90-day, and all-time ranges.
+- Save favorites and set target-price alerts.
+- Keep product records and alert history scoped to the signed-in account.
+- Send alert email to the account that owns the product.

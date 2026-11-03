@@ -1,5 +1,5 @@
 {
-  "name": "my-app",
+  "name": "cartdrop",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -15,6 +15,7 @@
     "@supabase/supabase-js": "^2.110.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "ipaddr.js": "^1.9.1",
     "lucide-react": "^1.18.0",
     "next": "16.2.9",
     "next-themes": "^0.4.6",
@@ -32,6 +33,7 @@
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "supabase": "^3.0.0",
     "tailwindcss": "^4"
   }
 }

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAllowedRemoteUrl } from "@/lib/image-url-security.mjs";
+import {
+  fetchPublicHttps,
+  isAllowedRemoteUrl,
+} from "@/lib/image-url-security.mjs";
 
 export const runtime = "nodejs";
 
@@ -54,7 +57,7 @@ export async function GET(request) {
     let redirectLimitReached = true;
     const pageOrigin = referer || currentUrl.origin;
     for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
-      response = await fetch(currentUrl, {
+      response = await fetchPublicHttps(currentUrl, {
         headers: {
           Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
           Referer: referer || `${currentUrl.origin}/`,
@@ -64,9 +67,7 @@ export async function GET(request) {
           "Sec-Fetch-Site": "cross-site",
           "User-Agent": IMAGE_USER_AGENT,
         },
-        redirect: "manual",
         signal: AbortSignal.timeout(10000),
-        cache: "no-store",
       });
 
       if (![301, 302, 303, 307, 308].includes(response.status)) {

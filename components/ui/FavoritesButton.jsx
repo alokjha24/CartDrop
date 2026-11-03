@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ExternalLink, Loader2, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -34,14 +34,8 @@ function formatPrice(value, currency = "INR") {
 export default function FavoritesButton({ products = [] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [favorites, setFavorites] = useState(() =>
-    products.filter((product) => product.is_favorite)
-  );
+  const favorites = products.filter((product) => product.is_favorite);
   const [savingId, setSavingId] = useState("");
-
-  useEffect(() => {
-    setFavorites(products.filter((product) => product.is_favorite));
-  }, [products]);
 
   const removeFavorite = async (product) => {
     if (savingId) return;
@@ -54,7 +48,6 @@ export default function FavoritesButton({ products = [] }) {
         return;
       }
 
-      setFavorites((current) => current.filter((item) => item.id !== product.id));
       toast.success("Removed from favorites.");
       router.refresh();
     } catch (error) {

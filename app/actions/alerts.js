@@ -190,6 +190,7 @@ export async function upsertPriceAlert(productId, input) {
   if (shouldNotifyImmediately) {
     try {
       await sendPriceAlertEmail({
+        recipientEmail: context.user.email,
         productName: context.product.name,
         productUrl: context.product.url,
         productImageUrl: context.product.image_url,

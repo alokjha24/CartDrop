@@ -21,6 +21,13 @@ function isMissingOriginalPriceColumn(error) {
   );
 }
 
+function isMissingLastCheckedAtColumn(error) {
+  return (
+    ["PGRST204", "42703"].includes(error?.code) &&
+    /last_checked_at/i.test(error?.message || "")
+  );
+}
+
 export async function GET(request) {
   if (!request.headers.get("authorization")) {
     return NextResponse.json({
@@ -79,24 +86,45 @@ async function runPriceCheck(request) {
     5000
   );
   let originalPriceColumnAvailable = true;
+  let lastCheckedAtColumnAvailable = true;
   const products = [];
 
   for (let offset = 0; products.length < maxProducts; offset += batchSize) {
-    let productsResult = await supabase
-      .from("products")
-      .select("id, user_id, name, url, image_url, current_price, original_price, currency, updated_at")
-      .order("id", { ascending: true })
-      .range(offset, offset + Math.min(batchSize, maxProducts - products.length) - 1);
-    if (isMissingOriginalPriceColumn(productsResult.error)) {
-      originalPriceColumnAvailable = false;
-      console.warn(
-        "The products.original_price column is missing. Apply supabase/migrations/20261020020000_add_original_price_to_products.sql."
-      );
-      productsResult = await supabase
-        .from("products")
-        .select("id, user_id, name, url, image_url, current_price, currency, updated_at")
+    const batchEnd = offset + Math.min(batchSize, maxProducts - products.length) - 1;
+    let productsResult;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const columns = [
+        "id", "user_id", "name", "url", "image_url", "current_price", "currency", "updated_at",
+        ...(originalPriceColumnAvailable ? ["original_price"] : []),
+        ...(lastCheckedAtColumnAvailable ? ["last_checked_at"] : []),
+      ];
+      let query = supabase.from("products").select(columns.join(", "));
+      query = lastCheckedAtColumnAvailable
+        ? query.order("last_checked_at", { ascending: true, nullsFirst: true })
+        : query.order("updated_at", { ascending: true, nullsFirst: true });
+
+      const batchResult = await query
         .order("id", { ascending: true })
-        .range(offset, offset + Math.min(batchSize, maxProducts - products.length) - 1);
+        .range(offset, batchEnd);
+
+      if (isMissingOriginalPriceColumn(batchResult.error) && originalPriceColumnAvailable) {
+        originalPriceColumnAvailable = false;
+        console.warn(
+          "The products.original_price column is missing. Apply supabase/migrations/20261020020000_add_original_price_to_products.sql."
+        );
+        continue;
+      }
+      if (isMissingLastCheckedAtColumn(batchResult.error) && lastCheckedAtColumnAvailable) {
+        lastCheckedAtColumnAvailable = false;
+        console.warn(
+          "The products.last_checked_at column is missing. Apply supabase/migrations/20261019090000_add_last_checked_at.sql."
+        );
+        continue;
+      }
+
+      productsResult = batchResult;
+      break;
     }
 
     if (productsResult.error) {
@@ -121,11 +149,42 @@ async function runPriceCheck(request) {
     alertsTriggered: 0,
     alertFailures: 0,
   };
+  const notificationEmailByUser = new Map();
+  const getNotificationEmail = async (userId) => {
+    if (notificationEmailByUser.has(userId)) {
+      return notificationEmailByUser.get(userId);
+    }
+
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    const email = data?.user?.email?.trim();
+    if (error || !email) {
+      throw new Error("Unable to find an email address for this alert owner.");
+    }
+
+    notificationEmailByUser.set(userId, email);
+    return email;
+  };
 
   const processProduct = async (product) => {
     const scrapeStartedAt = Date.now();
 
     try {
+      if (lastCheckedAtColumnAvailable) {
+        const { error: markCheckedError } = await supabase
+          .from("products")
+          .update({ last_checked_at: new Date(scrapeStartedAt).toISOString() })
+          .eq("id", product.id);
+
+        if (isMissingLastCheckedAtColumn(markCheckedError)) {
+          lastCheckedAtColumnAvailable = false;
+          console.warn(
+            "The products.last_checked_at column is missing. Apply supabase/migrations/20261019090000_add_last_checked_at.sql."
+          );
+        } else if (markCheckedError) {
+          throw new Error(`Unable to schedule the next price check: ${markCheckedError.message}`);
+        }
+      }
+
       const productData = await scrapeProduct(product.url);
       if (productData.diagnostics) {
         console.info("Cron product scrape diagnostics:", productData.diagnostics);
@@ -309,6 +368,7 @@ async function runPriceCheck(request) {
           let notificationStatus = "recorded";
           try {
             await sendPriceAlertEmail({
+              recipientEmail: await getNotificationEmail(product.user_id),
               productName: product.name,
               productUrl: product.url,
               productImageUrl: product.image_url,
