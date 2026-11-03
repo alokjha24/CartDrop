@@ -14,6 +14,13 @@ import { storeProductImage } from "@/lib/product-image-storage.mjs";
 
 export const runtime = "nodejs";
 
+function isMissingOriginalPriceColumn(error) {
+  return (
+    ["PGRST204", "42703"].includes(error?.code) &&
+    /original_price/i.test(error?.message || "")
+  );
+}
+
 export async function GET(request) {
   if (!request.headers.get("authorization")) {
     return NextResponse.json({
@@ -59,16 +66,49 @@ async function runPriceCheck(request) {
     },
   });
 
-  const { data: products, error: productsError } = await supabase
-    .from("products")
-    .select("id, user_id, name, url, image_url, current_price, currency, updated_at");
+  const batchSize = Math.min(
+    Math.max(Number(process.env.CRON_PRODUCT_BATCH_SIZE) || 50, 1),
+    200
+  );
+  const concurrency = Math.min(
+    Math.max(Number(process.env.CRON_PRODUCT_CONCURRENCY) || 4, 1),
+    10
+  );
+  const maxProducts = Math.min(
+    Math.max(Number(process.env.CRON_MAX_PRODUCTS) || 500, 1),
+    5000
+  );
+  let originalPriceColumnAvailable = true;
+  const products = [];
 
-  if (productsError) {
-    console.error("Scheduled price lookup error:", productsError);
-    return NextResponse.json(
-      { error: "Unable to load tracked products." },
-      { status: 500 }
-    );
+  for (let offset = 0; products.length < maxProducts; offset += batchSize) {
+    let productsResult = await supabase
+      .from("products")
+      .select("id, user_id, name, url, image_url, current_price, original_price, currency, updated_at")
+      .order("id", { ascending: true })
+      .range(offset, offset + Math.min(batchSize, maxProducts - products.length) - 1);
+    if (isMissingOriginalPriceColumn(productsResult.error)) {
+      originalPriceColumnAvailable = false;
+      console.warn(
+        "The products.original_price column is missing. Apply supabase/migrations/20261020020000_add_original_price_to_products.sql."
+      );
+      productsResult = await supabase
+        .from("products")
+        .select("id, user_id, name, url, image_url, current_price, currency, updated_at")
+        .order("id", { ascending: true })
+        .range(offset, offset + Math.min(batchSize, maxProducts - products.length) - 1);
+    }
+
+    if (productsResult.error) {
+      console.error("Scheduled price lookup error:", productsResult.error);
+      return NextResponse.json(
+        { error: "Unable to load tracked products." },
+        { status: 500 }
+      );
+    }
+
+    products.push(...(productsResult.data ?? []));
+    if (!productsResult.data?.length || productsResult.data.length < batchSize) break;
   }
 
   const result = {
@@ -82,7 +122,7 @@ async function runPriceCheck(request) {
     alertFailures: 0,
   };
 
-  for (const product of products ?? []) {
+  const processProduct = async (product) => {
     const scrapeStartedAt = Date.now();
 
     try {
@@ -95,7 +135,7 @@ async function runPriceCheck(request) {
       if (newPrice === null) {
         result.failed += 1;
         console.error(`Price check returned an invalid price for product ${product.id}.`);
-        continue;
+        return;
       }
 
       const historyReadAt = Date.now();
@@ -143,7 +183,7 @@ async function runPriceCheck(request) {
         }
 
         result.skippedAsStale += 1;
-        continue;
+        return;
       }
 
       const now = Date.now();
@@ -181,6 +221,9 @@ async function runPriceCheck(request) {
         .from("products")
         .update({
           current_price: newPrice,
+          ...(originalPriceColumnAvailable
+            ? { original_price: productData.originalPrice ?? null }
+            : {}),
           currency,
           ...(refreshedImageUrl ? { image_url: refreshedImageUrl } : {}),
           updated_at: checkedAt,
@@ -237,7 +280,7 @@ async function runPriceCheck(request) {
             event.alertType,
             event.triggeringPrice,
             event.previousPrice ?? "none",
-            event.triggeredAt,
+            Math.floor(now / 60_000),
           ].join(":");
 
           const { error: eventInsertError } = await supabase
@@ -318,7 +361,18 @@ async function runPriceCheck(request) {
       result.failed += 1;
       console.error(`Price check failed for product ${product.id}:`, error);
     }
-  }
+  };
+
+  const refreshQueue = [...products];
+  const worker = async () => {
+    let product;
+    while ((product = refreshQueue.shift())) {
+      await processProduct(product);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, refreshQueue.length) }, () => worker())
+  );
 
   if (result.updated > 0) {
     revalidatePath("/");

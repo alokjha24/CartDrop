@@ -18,12 +18,28 @@ import {
 import { storeProductImage } from "@/lib/product-image-storage.mjs";
 
 let lastCheckedAtSchemaWarningShown = false;
+let originalPriceSchemaWarningShown = false;
 
 function warnMissingLastCheckedAtColumn() {
   if (lastCheckedAtSchemaWarningShown) return;
   lastCheckedAtSchemaWarningShown = true;
   console.warn(
     "The products.last_checked_at column is missing. Apply supabase/migrations/20261019090000_add_last_checked_at.sql."
+  );
+}
+
+function isMissingOriginalPriceColumn(error) {
+  return (
+    ["PGRST204", "42703"].includes(error?.code) &&
+    /original_price/i.test(error?.message || "")
+  );
+}
+
+function warnMissingOriginalPriceColumn() {
+  if (originalPriceSchemaWarningShown) return;
+  originalPriceSchemaWarningShown = true;
+  console.warn(
+    "The products.original_price column is missing. Apply supabase/migrations/20261020020000_add_original_price_to_products.sql."
   );
 }
 
@@ -134,15 +150,24 @@ export async function addProduct(formData) {
     // --------------------------------------------------
     // 5. Check whether product already exists
     // --------------------------------------------------
-    const {
-      data: existingProduct,
-      error: existingProductError,
-    } = await supabase
+    let originalPriceColumnAvailable = true;
+    let existingProductResult = await supabase
       .from("products")
-      .select("id, current_price, image_url")
+      .select("id, current_price, image_url, original_price, updated_at")
       .eq("user_id", user.id)
       .eq("url", url)
       .maybeSingle();
+    if (isMissingOriginalPriceColumn(existingProductResult.error)) {
+      originalPriceColumnAvailable = false;
+      warnMissingOriginalPriceColumn();
+      existingProductResult = await supabase
+        .from("products")
+        .select("id, current_price, image_url, updated_at")
+        .eq("user_id", user.id)
+        .eq("url", url)
+        .maybeSingle();
+    }
+    const { data: existingProduct, error: existingProductError } = existingProductResult;
 
     if (existingProductError) {
       console.error(
@@ -166,6 +191,9 @@ export async function addProduct(formData) {
         url,
         name: getProductDisplayTitle(productData.productName, url),
         current_price: newPrice,
+        ...(originalPriceColumnAvailable
+          ? { original_price: productData.originalPrice ?? null }
+          : {}),
         currency,
         image_url: scrapedImageUrl,
         updated_at: checkedAt,
@@ -244,6 +272,9 @@ export async function addProduct(formData) {
       const productValues = {
         name: getProductDisplayTitle(productData.productName, url),
         current_price: newPrice,
+        ...(originalPriceColumnAvailable
+          ? { original_price: productData.originalPrice ?? null }
+          : {}),
         currency,
         image_url:
           scrapedImageUrl ||
@@ -257,6 +288,7 @@ export async function addProduct(formData) {
         .update({ ...productValues, last_checked_at: nowIso })
         .eq("id", product.id)
         .eq("user_id", user.id)
+        .eq("updated_at", product.updated_at)
         .select()
         .single();
       if (updateResult.error?.code === "PGRST204") {
@@ -266,10 +298,19 @@ export async function addProduct(formData) {
           .update(productValues)
           .eq("id", product.id)
           .eq("user_id", user.id)
+          .eq("updated_at", product.updated_at)
           .select()
           .single();
       }
       const { data, error } = updateResult;
+
+      if (error?.code === "PGRST116" || (!error && !data)) {
+        revalidatePath("/");
+        return {
+          success: true,
+          message: "A newer price check already finished. The latest price was kept.",
+        };
+      }
 
       if (error) {
         console.error("Product update error:", error);
