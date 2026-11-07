@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +19,14 @@ const PENDING_PRODUCT_URL_KEY = "cartdrop.pending-product-url";
 
 export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
   const supabase = createClient();
+  const isSigningInRef = useRef(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+
   const handleGoogleLogin = async () => {
+    if (isSigningInRef.current) return;
+
+    isSigningInRef.current = true;
+    setIsSigningIn(true);
     const { origin } = window.location;
 
     if (pendingProductUrl.trim()) {
@@ -28,22 +36,28 @@ export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
           pendingProductUrl.trim()
         );
       } catch (error) {
+        isSigningInRef.current = false;
+        setIsSigningIn(false);
         console.error("Unable to save the product link before sign in:", error);
         toast.error("Unable to keep this product link. Please copy it before signing in.");
         return;
       }
     }
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${origin}/auth/callback`,
-      },
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${origin}/auth/callback`,
+        },
+      });
 
-    if (error) {
+      if (error) throw error;
+    } catch (error) {
+      isSigningInRef.current = false;
+      setIsSigningIn(false);
       console.error("Google sign in failed:", error);
-      toast.error(error.message || "Unable to start Google sign in.");
+      toast.error(error?.message || "Unable to start Google sign in.");
     }
   };
 
@@ -63,6 +77,8 @@ export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
         <div className="flex flex-col gap-4 py-4">
           <Button
            onClick={handleGoogleLogin}
+           disabled={isSigningIn}
+           aria-busy={isSigningIn}
            variant="outline" 
            className="w-full gap-2" 
            size="lg">
@@ -84,7 +100,7 @@ export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            Continue with Google 
+            {isSigningIn ? "Connecting to Google..." : "Continue with Google"}
           </Button>
         </div>
 

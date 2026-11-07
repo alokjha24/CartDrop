@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ResponsiveContainer,
@@ -615,10 +616,13 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
             <div ref={productImageContainerRef} className="glass-card h-[112px] w-[112px] shrink-0 overflow-hidden rounded-xl">
 
               {productImageSrc && !imageFailed ? (
-                <img
+                <Image
                   src={productImageSrc}
                   data-product-image="true"
                   alt={displayTitle}
+                  width={112}
+                  height={112}
+                  unoptimized
                   className="h-full w-full object-contain bg-transparent"
                   loading="lazy"
                   style={{ imageRendering: "auto" }}
@@ -626,9 +630,12 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
                   onLoad={handleImageLoad}
                 />
               ) : (
-                <img
+                <Image
                   src="/product-placeholder.svg"
                   alt={`${displayTitle} image placeholder`}
+                  width={112}
+                  height={112}
+                  unoptimized
                   className="h-full w-full object-contain"
                 />
               )}
@@ -912,9 +919,12 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
           <div className="grid max-h-[85vh] overflow-hidden md:grid-cols-[320px_1fr]">
             <div className="hidden items-center justify-center overflow-hidden bg-[#0B1220] p-5 md:flex">
               {productImageSrc && !imageFailed ? (
-                <img
+                <Image
                   src={productImageSrc}
                   alt={displayTitle}
+                  width={420}
+                  height={420}
+                  unoptimized
                   className="h-[420px] w-full rounded-2xl bg-[#172337] object-contain shadow-sm"
                   onError={handleImageError}
                 />
@@ -944,9 +954,12 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
                 }`}
               >
                 {productImageSrc && !imageFailed ? (
-                  <img
+                  <Image
                     src={productImageSrc}
                     alt=""
+                    width={48}
+                    height={48}
+                    unoptimized
                     className="h-12 w-12 shrink-0 rounded-lg bg-[#172337] object-contain ring-1 ring-white/10"
                   />
                 ) : (
@@ -979,9 +992,12 @@ const ProductCard = ({ product, selected = false, onSelect }) => {
                 }`}
               >
                 {productImageSrc && !imageFailed ? (
-                  <img
+                  <Image
                     src={productImageSrc}
                     alt={displayTitle}
+                    width={352}
+                    height={176}
+                    unoptimized
                     className={`h-44 w-full rounded-xl bg-[#172337] object-contain shadow-sm transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                       mobileChartScrolled ? "scale-95" : "scale-100"
                     }`}

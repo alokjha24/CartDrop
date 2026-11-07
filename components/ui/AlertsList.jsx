@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRef, useState } from "react";
 import { Bell, ExternalLink, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { deletePriceAlert, upsertPriceAlert } from "@/app/actions/alerts";
@@ -124,9 +125,12 @@ export default function AlertsList({ initialAlerts, error }) {
           return (
             <article key={alert.id} className="glass-card min-w-0 overflow-hidden rounded-3xl">
               <div className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
-                <img
+                <Image
                   src={productImageSrc}
                   alt={productImageSrc === "/product-placeholder.svg" ? "Product image placeholder" : ""}
+                  width={80}
+                  height={80}
+                  unoptimized
                   loading="lazy"
                   onError={() => {
                     const directImageUrl = normalizeProductImageUrl(product.image_url, product.url);

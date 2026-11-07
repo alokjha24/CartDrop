@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { ExternalLink, Loader2, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -102,9 +103,12 @@ export default function FavoritesButton({ products = [] }) {
                       key={product.id}
                       className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/10 bg-[#0B1220]/65 p-3 sm:gap-4 sm:p-4"
                     >
-                      <img
+                      <Image
                         src={imageSrc || "/product-placeholder.svg"}
                         alt=""
+                        width={80}
+                        height={80}
+                        unoptimized
                         onError={(event) => {
                           event.currentTarget.src = "/product-placeholder.svg";
                         }}

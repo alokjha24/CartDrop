@@ -26,6 +26,8 @@ Open [http://localhost:3000](http://localhost:3000). Configure Google OAuth in S
 
 Apply the SQL files in `supabase/migrations/` in timestamp order to the existing Supabase project. They add price alerts, last-check timestamps, product image storage, original prices, favorites, and an index for the scheduled price-check queue. The migrations assume the original `products` and `price_history` tables already exist.
 
+`20261107010000_add_product_data_rls.sql` enables row-level security for `products` and `price_history`. Signed-in users can access only their own products and history for those products; the `anon` role has no table grants and RLS rejects signed-out access. The scheduled checker continues to use its server-only service-role key.
+
 The product image bucket is public so product photos can load without an authenticated request. Upload policies restrict writes to a user's own storage folder.
 
 ## Scheduled price checks
