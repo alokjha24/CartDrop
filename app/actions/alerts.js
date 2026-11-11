@@ -189,16 +189,23 @@ export async function upsertPriceAlert(productId, input) {
 
   if (shouldNotifyImmediately) {
     try {
-      await sendPriceAlertEmail({
-        recipientEmail: context.user.email,
-        productName: context.product.name,
-        productUrl: context.product.url,
-        productImageUrl: context.product.image_url,
-        currency: context.product.currency,
-        price: currentPrice,
-        targetPrice,
-        alertType: "target_price",
-      });
+      const { data: profile } = await context.supabase
+        .from("profiles")
+        .select("price_alert_emails_enabled")
+        .eq("id", context.user.id)
+        .maybeSingle();
+      if (profile?.price_alert_emails_enabled !== false) {
+        await sendPriceAlertEmail({
+          recipientEmail: context.user.email,
+          productName: context.product.name,
+          productUrl: context.product.url,
+          productImageUrl: context.product.image_url,
+          currency: context.product.currency,
+          price: currentPrice,
+          targetPrice,
+          alertType: "target_price",
+        });
+      }
 
       const triggeredAt = new Date().toISOString();
       const { error: triggerUpdateError } = await context.supabase

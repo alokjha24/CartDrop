@@ -41,6 +41,9 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("full_name, avatar_url").eq("id", user.id).maybeSingle()
+    : { data: null };
   const products = user ? await getProducts() : [];
 
   return (
@@ -74,7 +77,7 @@ export default async function Home() {
                 </Link>
               </>
             )}
-            <AuthButton user={user} />
+            <AuthButton user={user} profile={profile} />
           </div>
         </div>
       </header>

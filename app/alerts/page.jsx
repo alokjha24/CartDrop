@@ -3,12 +3,16 @@ import { ArrowLeft, Bell, ShieldCheck } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { getAllPriceAlerts } from "@/app/actions/alerts";
 import AlertsList from "@/components/ui/AlertsList";
+import AuthButton from "@/components/ui/AuthButton";
 
 export default async function AlertsPage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("full_name, avatar_url").eq("id", user.id).maybeSingle()
+    : { data: null };
 
   if (!user) {
     return (
@@ -45,6 +49,7 @@ export default async function AlertsPage() {
           <div className="inline-flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-1.5 text-xs font-semibold text-[#FDBA74] sm:gap-2 sm:px-3 sm:text-sm">
             <Bell className="h-4 w-4" /> Price alerts
           </div>
+          <AuthButton user={user} profile={profile} />
         </div>
       </header>
 

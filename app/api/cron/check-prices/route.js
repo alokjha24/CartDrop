@@ -367,18 +367,25 @@ async function runPriceCheck(request) {
 
           let notificationStatus = "recorded";
           try {
-            await sendPriceAlertEmail({
-              recipientEmail: await getNotificationEmail(product.user_id),
-              productName: product.name,
-              productUrl: product.url,
-              productImageUrl: product.image_url,
-              currency,
-              price: event.triggeringPrice,
-              previousPrice: event.previousPrice,
-              alertType: event.alertType,
-              targetPrice: alerts.find((alert) => alert.id === event.alertId)?.threshold,
-              observationWindowDays: alerts.find((alert) => alert.id === event.alertId)?.observation_window_days,
-            });
+            const { data: profile } = await supabase
+              .from("profiles")
+              .select("price_alert_emails_enabled")
+              .eq("id", product.user_id)
+              .maybeSingle();
+            if (profile?.price_alert_emails_enabled !== false) {
+              await sendPriceAlertEmail({
+                recipientEmail: await getNotificationEmail(product.user_id),
+                productName: product.name,
+                productUrl: product.url,
+                productImageUrl: product.image_url,
+                currency,
+                price: event.triggeringPrice,
+                previousPrice: event.previousPrice,
+                alertType: event.alertType,
+                targetPrice: alerts.find((alert) => alert.id === event.alertId)?.threshold,
+                observationWindowDays: alerts.find((alert) => alert.id === event.alertId)?.observation_window_days,
+              });
+            }
           } catch (notificationError) {
             notificationStatus = "failed";
             result.alertFailures += 1;

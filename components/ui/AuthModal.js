@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,29 +18,40 @@ import { toast } from "sonner";
 
 const PENDING_PRODUCT_URL_KEY = "cartdrop.pending-product-url";
 
+function savePendingProductUrl(value) {
+  if (!value?.trim()) return true;
+  try {
+    window.sessionStorage.setItem(PENDING_PRODUCT_URL_KEY, value.trim());
+    return true;
+  } catch {
+    toast.error("Unable to keep this product link. Please copy it before signing in.");
+    return false;
+  }
+}
+
 export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
   const supabase = createClient();
   const isSigningInRef = useRef(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const handleGoogleLogin = async () => {
     if (isSigningInRef.current) return;
+    if (!termsAccepted) {
+      toast.error("Accept the Terms and Privacy Policy to continue with Google.");
+      return;
+    }
 
     isSigningInRef.current = true;
     setIsSigningIn(true);
     const { origin } = window.location;
+    const callbackUrl = new URL("/auth/callback", origin);
+    callbackUrl.searchParams.set("terms", "1");
 
     if (pendingProductUrl.trim()) {
-      try {
-        window.sessionStorage.setItem(
-          PENDING_PRODUCT_URL_KEY,
-          pendingProductUrl.trim()
-        );
-      } catch (error) {
+      if (!savePendingProductUrl(pendingProductUrl)) {
         isSigningInRef.current = false;
         setIsSigningIn(false);
-        console.error("Unable to save the product link before sign in:", error);
-        toast.error("Unable to keep this product link. Please copy it before signing in.");
         return;
       }
     }
@@ -48,7 +60,8 @@ export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${origin}/auth/callback`,
+          redirectTo: callbackUrl.toString(),
+          queryParams: { prompt: "select_account" },
         },
       });
 
@@ -102,6 +115,15 @@ export function AuthModal({ isOpen, onClose, pendingProductUrl = "" }) {
             </svg>
             {isSigningIn ? "Connecting to Google..." : "Continue with Google"}
           </Button>
+          <label className="flex items-start gap-2.5 text-xs leading-5 text-slate-400">
+            <input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-1 accent-[#F97316]" />
+            <span>I agree to CartDrop’s <Link className="text-[#FDBA74] underline" href="/terms">Terms</Link> and <Link className="text-[#FDBA74] underline" href="/privacy">Privacy Policy</Link>.</span>
+          </label>
+          <p className="text-center text-xs text-slate-400">or use email and password</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Link href="/login" onClick={(event) => { if (!savePendingProductUrl(pendingProductUrl)) event.preventDefault(); }} className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-sm font-semibold text-slate-100 hover:bg-white/10">Sign in with email</Link>
+            <Link href="/signup" onClick={(event) => { if (!savePendingProductUrl(pendingProductUrl)) event.preventDefault(); }} className="inline-flex h-10 items-center justify-center rounded-lg bg-[#F97316] text-sm font-semibold text-white hover:bg-[#EA580C]">Create account</Link>
+          </div>
         </div>
 
         

@@ -694,7 +694,7 @@ export async function signOut() {
   try {
     const supabase = await createClient();
 
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
 
     revalidatePath("/");
   } catch (error) {
