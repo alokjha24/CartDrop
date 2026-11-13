@@ -36,9 +36,9 @@ The signup checkbox records acceptance in the profile row. The `/terms` and `/pr
 
 Supabase's hosted built-in email sender is for trying Auth. It currently allows two messages per hour for the whole project and sends only to email addresses on your Supabase organization team. Other recipients are rejected. This affects signup verification, password reset, and email-change messages.
 
-The existing CartDrop price-alert sender is separate. Resend test mode also restricts recipients to your account email until Resend allows sending from a verified domain. The application can record alerts and show them in CartDrop, but it cannot deliver email to every user until the mail provider permits it. Deploying on Vercel does not remove either provider restriction.
+The existing CartDrop price-alert sender is separate. Brevo requires a verified sender and may restrict recipients until the account is approved for transactional sending. The application can record alerts and show them in CartDrop, but it cannot deliver email to every user until the mail provider permits it. Deploying on Vercel does not remove either provider restriction.
 
-To enable email for all users, configure a custom SMTP provider (or Supabase Send Email Hook) for Supabase Auth, and a sender/domain that Resend accepts for price alerts. Follow the provider's current free-tier and sender-verification requirements before choosing one.
+To enable email for all users, configure a custom SMTP provider (or Supabase Send Email Hook) for Supabase Auth, and verify a sender/domain in Brevo for price alerts. Set `BREVO_API_KEY`, `BREVO_FROM_EMAIL`, and optionally `BREVO_FROM_NAME` in the deployment environment. Follow the provider's current free-tier and sender-verification requirements before choosing one.
 
 ## Run and verify locally
 

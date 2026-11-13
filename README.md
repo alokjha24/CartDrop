@@ -19,7 +19,7 @@ CartDrop refreshes tracked products automatically and emails the account owner w
 | UI | Tailwind CSS, Radix UI, Recharts, Lucide React |
 | Data and authentication | Supabase, PostgreSQL, Supabase SSR authentication, row-level security |
 | Product data | Firecrawl API, retailer adapters, metadata and structured-data extraction |
-| Notifications | Resend, server-rendered HTML email |
+| Notifications | Brevo, server-rendered HTML email |
 | Images | Next Image, Supabase Storage |
 | Deployment and scheduling | Vercel, Vercel Cron, Next.js API routes |
 | Validation | Node.js test runner, ESLint |
@@ -33,7 +33,7 @@ CartDrop refreshes tracked products automatically and emails the account owner w
 3. The extraction layer combines retailer-specific logic with page metadata and structured product information to identify the title, image, currency, original price, and current selling price.
 4. Prices are normalized before the product record is created or refreshed in Supabase. A new `price_history` sample is stored when the value is meaningful and not a duplicate of the latest sample.
 5. The dashboard reads the user's products and history through Supabase-authenticated server actions. Users can inspect 7-day, 30-day, 90-day, 180-day, 1-year, and all-time ranges.
-6. A Vercel Cron request calls `/api/cron/check-prices` daily. The route processes the least recently checked products first, refreshes their prices, evaluates active alerts, and sends email through Resend when an alert condition is met.
+6. A Vercel Cron request calls `/api/cron/check-prices` daily. The route processes the least recently checked products first, refreshes their prices, evaluates active alerts, and sends email through Brevo when an alert condition is met.
 
 Product images are validated, stored in the Supabase product-image bucket when possible, and rendered with Next Image.
 
@@ -87,7 +87,7 @@ Vercel Cron price refresh
       ↓
 Alert evaluation
       ↓
-Resend email notification
+Brevo email notification
 ```
 
 ## Getting Started
@@ -98,7 +98,7 @@ Resend email notification
 - npm
 - A Supabase project with the base `products` and `price_history` tables
 - A Firecrawl API key
-- A Resend API key and verified sender address
+- A Brevo API key and verified sender address
 
 ### Installation
 
@@ -119,8 +119,9 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 FIRECRAWL_API_KEY=
 CRON_SECRET=
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=
+BREVO_API_KEY=
+BREVO_FROM_EMAIL=
+BREVO_FROM_NAME=CartDrop
 ```
 
 #### Optional
@@ -164,7 +165,7 @@ npm start         # Serve the production build
 
 CartDrop is deployed on Vercel. The scheduled job in `vercel.json` calls `/api/cron/check-prices` daily at 00:30 UTC.
 
-Configure the required environment variables, including `CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `FIRECRAWL_API_KEY`, and Resend settings, in the Vercel project. The deployed application is available at [https://cart-drop.vercel.app/](https://cart-drop.vercel.app/).
+Configure the required environment variables, including `CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `FIRECRAWL_API_KEY`, and Brevo settings, in the Vercel project. The deployed application is available at [https://cart-drop.vercel.app/](https://cart-drop.vercel.app/).
 
 ## Project Purpose
 
